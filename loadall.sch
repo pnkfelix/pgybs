@@ -16,6 +16,8 @@
 ;; (generate-java-lexer   ab-outofline "made-outofline.java")
 
 (define (wrap-scanner0 scanner0-defn)
+  (define accum '())
+  (define (push! c) (set! accum (cons c accum)) (unspecified))
   (let ((link-scanner0
          (eval `(lambda (consumeChar scanChar accept
                          resetAccumulator
@@ -25,13 +27,16 @@
                     ,scanner0-defn
                     scanner0))))
         ;; -> unspecified
-        (consumeChar (lambda () (read-char (current-input-port)) (unspecified)))
+        (consumeChar (lambda () (push! (read-char (current-input-port)))))
         ;; -> char or eof-object
         (scanChar (lambda () (peek-char (current-input-port))))
-        ;; Symbol -> Token
-        (accept (lambda (token) token))
+        ;; Symbol -> Result
+        (accept (lambda (token)
+                  (let ((result (list->string (reverse accum))))
+                    (set! accum '())
+                    (cons token result))))
 
-        (resetAccumulator (lambda () 'nothing-yet))
+        (resetAccumulator (lambda () (set! accum '())))
         (scannerError (lambda (x) (error 'scanner0 x)))
         (errIllegalChar     "errIllegalChar")
         (errLexGenBug       "errLexGenBug")
