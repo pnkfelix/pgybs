@@ -9,10 +9,11 @@ generated output will be sent; it defaults to (current-output-port).
 The generated code fragment has the nullary procedure scanner0 as
 entry point.  The fragment assumes its context provides the following
 procedures:
-  scanChar()                       -- peeks at next char in input,
-  consumeChar()                    -- moves input cursor,
-  accept(Token)                    -- returns input token kind,
-  resetAccumulator()               -- accumulated token reset to "",
+  scanChar()                       -- peeks at next char in input
+  consumeChar()                    -- moves input cursor
+  isSkippableWhitespaceChar(c)     -- can c be dropped from input entirely
+  accept(Token)                    -- return token kind; stashes its content
+  resetAccumulator()               -- accumulated token reset to ""
   scannerError(ScannerErrorKind)   -- called on error inputs.
 
 The generated fragment assumes the context provides the following

@@ -42,7 +42,7 @@
     (gen-c 0 "    char c = scanChar()\;" #\newline)
     (gen-c 0 #\newline)
     (gen-c 0 "    /*  Edit here to consume whitespace.  */" #\newline)
-    (gen-c 0 "    while (isspace(c)) {" #\newline)
+    (gen-c 0 "    while (isSkippableWhitespaceChar(c)) {" #\newline)
     (gen-c 0 "        consumeChar()\;" #\newline)
     (gen-c 0 "        resetAccumulator()\;" #\newline)
     (gen-c 0 "        c = scanChar()\;" #\newline)

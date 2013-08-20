@@ -45,7 +45,7 @@
     (gen-java 4 "    char c = scanChar()\;" #\newline)
     (gen-java 4 #\newline)
     (gen-java 4 "    /*  Edit here to consume whitespace.  */" #\newline)
-    (gen-java 4 "    while (Character.isWhitespace(c)) {" #\newline)
+    (gen-java 4 "    while (isSkippableWhitespaceChar(c)) {" #\newline)
     (gen-java 4 "        consumeChar()\;" #\newline)
     (gen-java 4 "        resetAccumulator()\;" #\newline)
     (gen-java 4 "        c = scanChar()\;" #\newline)
