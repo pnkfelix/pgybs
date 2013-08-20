@@ -6,7 +6,8 @@
   (and (char-whitespace? c) (not (char=? c #\newline))))
 
 (generate-scheme-lexer pgy-tokens "generated-lex-pgy.sch")
-(generate-scheme "pgy.pg" "generated-parse-pgy.sch" "generated-tables.sch")
+(generate-scheme "parsegen-y.pgy"
+                 "generated-parse-pgy.sch" "generated-tables.sch")
 
 (load "lex-pgy-prefix.sch")
 (load "generated-lex-pgy.sch")
