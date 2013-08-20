@@ -5,3 +5,12 @@
 
 (load (string-append (parsegen-directory) "loadparsegen.sch"))
 (load (string-append (lexgen-directory) "loadlexgen.sch"))
+
+;; Example descriptions
+(define ab-outofline '((a #\a) (b #\b) (ab (!   a   b))))
+(define ab-inlined   '((a #\a) (b #\b) (ab (! #\a #\b))))
+
+;; Example invocations
+;; (generate-scheme-lexer ab-outofline)
+;; (generate-scheme-lexer ab-inlined)
+;; (generate-java-lexer   ab-outofline)

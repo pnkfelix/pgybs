@@ -1,0 +1,13 @@
+The procedure generate-LANG-lexer takes a description, which is an
+associative list of the form ((Symbol RegExp) ...), and generates
+token reading code.
+
+See regexp.sch for the actual syntax for regexps.  As best I can tell
+from reading and experimentation, the data definition is roughly:
+
+;; A RegExp is one of:
+;; - Character                    -- literal
+;; - [Listof RegExp]              -- catentation
+;; - (cons '! [Listof RegExp])    -- alternation
+;; - (list '* RegExp)             -- Kleene star
+;; - (list '+ RegExp)             -- (+ R) is same as (R (* R))
