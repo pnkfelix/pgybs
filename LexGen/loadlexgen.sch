@@ -24,7 +24,13 @@
             (generate-lexer generator description out))))
         ((output-port? (car rest))
          (set! output-port1 (car rest))
-         (generator (relabel-states (regular->minimal description))))
+         (call-with-values (lambda ()
+                             (generator (relabel-states
+                                         (regular->minimal description))))
+           (lambda results
+             (if (and (not (null? results))
+                      (not (eq? (car results) (unspecified))))
+                 (pretty-print (car results) output-port1)))))
         (else
          (display "Ignoring illegal third argument to generate-lexer")
          (newline)
