@@ -39,7 +39,7 @@
                 (generate-scheme-for-lexer-state entry dfa))
               dfa)
        (let loop ((c (scanChar)))
-         (if (char-whitespace? c)
+         (if (and (char? c) (char-whitespace? c))
              (begin (consumeChar)
                     (resetAccumulator)
                     (loop (scanChar)))))
