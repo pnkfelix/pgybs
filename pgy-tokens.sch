@@ -21,6 +21,7 @@
       (terminals   ,(string->list "*terminals"))
 
       (id          (,letter (* (! ,letter ,digit))))
+      (id          (#\< ,letter (* (! ,letter ,digit)) #\>))
       (number      (+ ,digit))
 
       )))
