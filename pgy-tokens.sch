@@ -8,16 +8,19 @@
                                              (loop (+ i 1)))))))))
          (digit `(! ,@(char-range #\0 #\9)))
          (letter `(! ,@(char-range #\a #\z) ,@(char-range #\A #\Z))))
-    `((id-a (+ (! #\a)))
-      (id-b (+ (! #\b)))
+    `((id-a        (+ (! #\a)))
+      (id-b        (+ (! #\b)))
 
       ;; old token classes
-      (goesto #\: #\: #\=)
-      (newline #\newline)
-      (sharpsign #\#)
+      (goesto      ( #\: #\: #\= ))
+      (newline     #\newline)
+      (sharpsign   #\#)
+
       (end         ,(string->list "*end"))
-      (id          (,letter (* (! ,letter ,digit))))
-      (productions ,(string->list "*production"))
+      (productions ,(string->list "*productions"))
       (terminals   ,(string->list "*terminals"))
+
+      (id          (,letter (* (! ,letter ,digit))))
+      (number      (+ ,digit))
 
       )))

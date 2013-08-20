@@ -35,6 +35,6 @@
                     (let ((x (reverse (car accum))))
                       (resetAccumulator)
                       (values 'test-failed x))))
-                (scan-all accum)
-                #;(parse-input)
+                #;(scan-all accum)
+                (parse-input)
                 ))))))
