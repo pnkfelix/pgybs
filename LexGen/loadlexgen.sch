@@ -2,10 +2,11 @@
 ;
 ; First you have to load ParseGen.
 
-(define *lexgen-directory* "/course/csg262/LexGen/")
+; Note that you also need to define the lexgen-directory parameter
+; before loading this.
 
 (let ((load (lambda (filename)
-              (load (string-append *lexgen-directory* filename)))))
+              (load (string-append (lexgen-directory) filename)))))
   (load "select.sch")
   (load "accessible.sch")
   (load "regexp.sch")

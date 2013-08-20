@@ -569,7 +569,7 @@
 
 (define (write-definition def port)
   (if (eq? parser-language 'scheme)
-      (begin (case *host-implementation*
+      (begin (case (host-implementation)
                ((MacScheme ChezScheme Gambit)
                 (pretty-print def port))
                (else (write def port)))
@@ -584,7 +584,7 @@
          (apply union sets)))
 
 (define (sort1 predicate ls)
-  (case *host-implementation*
+  (case (host-implementation)
     ((ChezScheme) (sort predicate ls))
     ((MacScheme)  (sort ls predicate))
     (else         ls)))
