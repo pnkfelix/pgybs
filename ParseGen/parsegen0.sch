@@ -391,11 +391,16 @@
   (parse-error-recovery nonterminal expected)
   (mk-error))
 
-; For now the error recovery has to be hand-coded.
-; This is the simplest possible error recovery: exit!
+; For now the error recovery has to be hand-coded.  This is the
+; simplest possible error recovery: none, just raise an exception.
+; One might consider making it a continuable exception, though it is
+; not clear how to properly incorporate that into the framework as it
+; stands.
 
 (define (parse-error-recovery nonterminal expected)
-  (reset))
+  (raise (list 'parse-error-recovery
+               (list 'nonterminal: nonterminal
+                     'expected: expected))))
 
 
 ; Action procedures.
