@@ -15,8 +15,9 @@
   (load "lexgen.scheme.sch"))
 
 (define (generate-lexer generator description . rest)
+  (define (core) (generator (relabel-states (regular->minimal description))))
   (cond ((null? rest)
-         (generate-lexer generator description (current-output-port)))
+         (core))
         ((string? (car rest))
          (call-with-output-file
           (car rest)
@@ -24,9 +25,7 @@
             (generate-lexer generator description out))))
         ((output-port? (car rest))
          (set! output-port1 (car rest))
-         (call-with-values (lambda ()
-                             (generator (relabel-states
-                                         (regular->minimal description))))
+         (call-with-values core
            (lambda results
              (if (and (not (null? results))
                       (not (eq? (car results) (unspecified))))
