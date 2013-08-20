@@ -1,5 +1,5 @@
 The procedure generate-LANG-lexer takes a description, which is an
-associative list of the form ((Symbol RegExp) ...), and generates
+associative list of the form ((Identifier RegExp) ...), and generates
 token reading code.
 
 Each variant of generate-LANG-lexer also takes an optional second
@@ -7,10 +7,16 @@ argument, which can be a filename or an output port where the
 generated output will be sent; it defaults to (current-output-port).
 
 The generated code fragment has the nullary procedure scanner0 as
-entry point.  
+entry point.  The fragment assumes its context provides the procedures
+consumeChar(), scanChar(), and accept(Token), as well as a constant
+value named EOF, where
 
 See regexp.sch for the actual syntax for regexps.  As best I can tell
-from reading and experimentation, the data definition is roughly:
+from reading and experimentation, the data definitions are roughly:
+
+;; An Identifier is a Symbol that when printed is a legal identifer
+;; fragment for the target language.  (For example, using a sequence
+;; of upper- and lower-case letters from the basic Latin alphabet.)
 
 ;; A RegExp is one of:
 ;; - Character                    -- literal
