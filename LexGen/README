@@ -2,6 +2,13 @@ The procedure generate-LANG-lexer takes a description, which is an
 associative list of the form ((Symbol RegExp) ...), and generates
 token reading code.
 
+Each variant of generate-LANG-lexer also takes an optional second
+argument, which can be a filename or an output port where the
+generated output will be sent; it defaults to (current-output-port).
+
+The generated code fragment has the nullary procedure scanner0 as
+entry point.  
+
 See regexp.sch for the actual syntax for regexps.  As best I can tell
 from reading and experimentation, the data definition is roughly:
 
