@@ -1,3 +1,25 @@
+(define-values (accept next-token consume-token!)
+  (let ((next-token-is-ready #f)
+        (text-of-next-token "")
+        (kind-of-next-token #f)
+        (size-of-next-token 0))
+
+    (define (accept t)
+      (set! kind-of-next-token t)
+      (set! next-token-is-ready #t)
+      t)
+
+    (define (consume-token!)
+      (set! next-token-is-ready #f))
+
+    (define (next-token)
+      (if next-token-is-ready
+          kind-of-next-token
+          (begin (resetAccumulator)
+                 (scanner0))))
+
+    (values accept next-token consume-token!)))
+  
 #|
 
 ; Lexical analyzer, parser, and action procedures for inputs to ParseGen.
