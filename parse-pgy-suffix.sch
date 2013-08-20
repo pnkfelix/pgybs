@@ -67,10 +67,10 @@
   (make-grammar <terminals> <productions>))
 
 (define (make-identifier)
-  token-value)
+  (string->symbol (accumulatedToken)))
 
 (define (make-number)
-  token-value)
+  (string->number (accumulatedToken)))
 
 (define (make-production <id> <rhs>)
   (set! last-lhs <id>)
