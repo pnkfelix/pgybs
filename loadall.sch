@@ -14,3 +14,28 @@
 ;; (generate-scheme-lexer ab-outofline)
 ;; (generate-scheme-lexer ab-inlined "made-inlined.sch")
 ;; (generate-java-lexer   ab-outofline "made-outofline.java")
+
+(define (wrap-scanner0 scanner0-defn)
+  (let ((link-scanner0
+         (eval `(lambda (consumeChar scanChar accept
+                         resetAccumulator
+                         scannerError
+                         errIllegalChar errLexGenBug errIncompleteToken)
+                  (let ()
+                    ,scanner0-defn
+                    scanner0))))
+        ;; -> unspecified
+        (consumeChar (lambda () (read-char (current-input-port)) (unspecified)))
+        ;; -> char or eof-object
+        (scanChar (lambda () (peek-char (current-input-port))))
+        ;; Symbol -> Token
+        (accept (lambda (token) token))
+
+        (resetAccumulator (lambda () 'nothing-yet))
+        (scannerError (lambda (x) (error 'scanner0 x)))
+        (errIllegalChar     "errIllegalChar")
+        (errLexGenBug       "errLexGenBug")
+        (errIncompleteToken "errIncompleteToken"))
+    (link-scanner0 consumeChar scanChar accept
+                   resetAccumulator scannerError
+                   errIllegalChar errLexGenBug errIncompleteToken)))

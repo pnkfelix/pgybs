@@ -7,9 +7,22 @@ argument, which can be a filename or an output port where the
 generated output will be sent; it defaults to (current-output-port).
 
 The generated code fragment has the nullary procedure scanner0 as
-entry point.  The fragment assumes its context provides the procedures
-consumeChar(), scanChar(), and accept(Token), as well as a constant
-value named EOF, where
+entry point.  The fragment assumes its context provides the following
+procedures:
+  scanChar()                       -- peeks at next char in input,
+  consumeChar()                    -- moves input cursor,
+  accept(Token)                    -- returns input token kind,
+  resetAccumulator()               -- accumulated token reset to "",
+  scannerError(ScannerErrorKind)   -- called on error inputs.
+
+The generated fragment assumes the context provides the following
+constant values for ScannerErrorKind: { errIllegalChar, errLexGenBug,
+errIncompleteToken }, and language-dependent expressions for Token
+(for Scheme, Token is '<name>; for Java and C, Token is z<name>).
+
+The generated fragment may also assume the a constant value named EOF
+that can be compared with the result of scanChar() to detect
+end-of-input.
 
 See regexp.sch for the actual syntax for regexps.  As best I can tell
 from reading and experimentation, the data definitions are roughly:
