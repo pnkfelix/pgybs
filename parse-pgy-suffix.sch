@@ -1,3 +1,5 @@
+#|
+
 ; PARSE-ERROR.
 
 ; These variables are assigned.
@@ -133,3 +135,5 @@
                           (list t (list (list (symbol->string t)) '*)))
                         terminals)
                    grammar)))
+
+|#

@@ -1,3 +1,5 @@
+#|
+
 ; Lexical analyzer, parser, and action procedures for inputs to ParseGen.
 
 (define (string-downcase s)
@@ -225,3 +227,5 @@
   (display "WARNING: Possible misuse of < or >: ")
   (display (substring text-of-next-token 0 size-of-next-token))
   (newline))
+
+|#
