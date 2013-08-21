@@ -1,13 +1,23 @@
+(load "stashenv.sch")
+
+(define-snapshot-environment env:0)
+
 (trace load)
 (load "loadall.sch")
 
+(define-snapshot-environment env:parsegen-loaded)
+
 (load "pgy-tokens.sch")
-(define (isSkippableWhitespaceChar c)
-  (and (char-whitespace? c) (not (char=? c #\newline))))
 
 (generate-scheme-lexer pgy-tokens "generated-lex-pgy.sch")
 (generate-scheme "parsegen-y.pgy"
                  "generated-parse-pgy.sch" "generated-tables.sch")
+
+
+(swap-environment! env:0 'env:pgy-generation)
+
+(define (isSkippableWhitespaceChar c)
+  (and (char-whitespace? c) (not (char=? c #\newline))))
 
 (load "lex-pgy-prefix.sch")
 (load "generated-lex-pgy.sch")
