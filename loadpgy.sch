@@ -31,7 +31,12 @@
            (push! x tok)
            (loop)))))))
 
+(define (resetScannerAndParser)
+  (resetAccumulator)
+  (consume-token!))
+
 (define (pgy-test test-arg test-thunk)
+  (resetScannerAndParser)
   (call-with-input-string
    test-arg
    (lambda (p)
@@ -46,5 +51,10 @@
                 (test-thunk)
                 ))))))
 
-(pgy-test "Hm *terminals id goesto *productions boo ::= goesto id #list\n\n*end"
-          (lambda () (consume-token!) (parse-input)))
+(pgy-test "Hm *terminals term1 term2 *productions boo ::= goesto id #list\n\n*end"
+          parse-input)
+
+(pgy-test "123" parse-number)
+(pgy-test "hithere" parse-id)
+(pgy-test "foo" (lambda () (parse-actionproc)))
+(pgy-test "this then #foo whoa #andthen yep\n" (lambda () (parse-rhs)))
