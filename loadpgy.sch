@@ -3,7 +3,7 @@
 (define-snapshot-environment env:0)
 
 (trace load)
-(load "loadall.sch")
+(load "loadlexparsegen.sch")
 
 (define-snapshot-environment env:parsegen-loaded)
 
