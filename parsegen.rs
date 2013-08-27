@@ -7,6 +7,7 @@
 mod grammar {
     use std::str;
     use std::cmp;
+    use std::hashmap::HashMap;
 
     trait Terminal { }
     trait NonTerminal { }
@@ -14,15 +15,25 @@ mod grammar {
     #[deriving(Clone)]
     enum ProductionSym<T,NT> { T(T), NT(NT) }
 
-    #[deriving(Clone)]
-    struct Prod<T, NT> {
-        head: NT,
-        body: ~[ProductionSym<T, NT>],
+    impl<T,NT:Eq> ProductionSym<T,NT> {
+        fn matches_nt(&self, other:&NT) -> bool {
+            match self { &T(_) => false, &NT(ref nt) => nt == other }
+        }
     }
+
+    #[deriving(Clone)]
+    struct PBody<T, NT>(~[ProductionSym<T, NT>]);
+
+    #[deriving(Clone)]
+    struct Prod<T, NT> { head: NT, body: PBody<T, NT> }
 
     struct Grammar<T, NT> {
         start: NT,
-        productions: ~[Prod<T,NT>],
+        productions: ~[Prod<T, NT>],
+    }
+
+    trait ToGrammar<T, NT> {
+        fn to_grammar(&self) -> Grammar<T, NT>;
     }
 
     trait Primable {
@@ -122,7 +133,7 @@ mod grammar {
     }
 
     fn production<T,NT>(h:NT, b: ~[ProductionSym<T,NT>]) -> Prod<T,NT> {
-        Prod { head:h, body:b }
+        Prod { head:h, body:PBody(b) }
     }
 
     // The $G argument is the SymbolRegistry.  (Originally I used a
@@ -293,11 +304,9 @@ mod grammar {
         let mut accum : ~[P] = ~[];
         if prods.len() > 0 {
             let a = &prods[0].head;
-            let bodies : ~[~[PS]] = prods.map(|p| { assert!(p.head == *a); p.body.clone() });
+            let bodies : ~[~[PS]] = prods.map(|p| { assert!(p.head == *a); (*p.body).clone() });
             let (alphas, betas) : (~[~[PS]], ~[~[PS]]) =
-                bodies.partitioned(|b|
-                                   b.len() > 0 &&
-                                   match b[0] { T(_) => false, NT(ref s) => a == s });
+                bodies.partitioned(|b| b.len() > 0 && b[0].matches_nt(a));
             let alphas = alphas.map(|b| { assert!(b.len() > 1); b.slice_from(1).to_owned() });
 
             let a2 = a.prime();
@@ -318,9 +327,7 @@ mod grammar {
     impl<T,NT:Eq> Prod<T,NT> {
         fn is_empty(&self) -> bool { self.body.len() == 0 }
         fn is_left_recursive(&self) -> bool {
-            self.body.len() >= 1 && match self.body[0] {
-                T(_) => false, NT(ref h) => &self.head == h
-            }
+            self.body.len() >= 1 && self.body[0].matches_nt(&self.head)
         }
         fn is_trivial_cycle(&self) -> bool {
             self.body.len() == 1 && self.is_left_recursive()
@@ -335,6 +342,77 @@ mod grammar {
         prods.iter().any(|p| p.is_left_recursive() )
     }
 
+/*
+    impl<T:Clone,NT:Hash+Eq+Clone> ToGrammar<T,NT> for (NT, HashMap<NT, ~[PBody<T,NT>]>) {
+        fn to_grammar(&self) -> Grammar<T,NT> {
+            let &(start, ht) = self;
+            let prods = ~[];
+            for (k,v) in ht.iter() {
+                for body in v.iter() {
+                    let body : PBody<T,NT> = *body;
+                    let p : Prod<T,NT> = Prod{ head: k, body: body };
+                    prods.push(p);
+                }
+            }
+            Grammar { start: start, productions: prods }
+        }
+    }
+*/
+
+
+    impl<T:Clone,NT:Eq+Hash+Clone> Grammar<T,NT> {
+        fn eliminate_left_recursion(&self) -> Grammar<T,NT> {
+            type NTMap = HashMap<NT, ~[Prod<T,NT>]>;
+            let mut rules : NTMap = HashMap::new();
+            for p in self.productions.iter() {
+                do rules.insert_or_update_with(p.head.clone(), ~[p.clone()]) |_,v| {
+                    v.push(p.clone());
+                };
+            }
+
+            let keys : ~[NT] = rules.iter().map(|(k,v)|k.clone()).collect();
+            let mut seen_keys : ~[NT] = ~[];
+            for A_i in keys.iter() {
+                for A_j in seen_keys.iter() {
+                    for body in rules.get(A_i).iter().map(|p|p.body.clone()) {
+                        if body[0].matches_nt(A_j) {
+                           /* XXX: replacement here */
+                        } else {
+                           /* do nothing */
+                        }
+                    }
+                }
+                seen_keys.push(A_i.clone());
+            }
+            for (nt, prods) in rules.mut_iter() {
+                
+            }
+
+            let mut pvec : ~[Prod<T,NT>] = ~[];
+/*
+            let mut leftrecur : NTMap = HashMap::new();
+            let mut not_leftrecur : NTMap = HashMap::new();
+            for (nt,prods) in rules.move_iter() {
+                if prods.iter().any(|p|p.is_left_recursive()) {
+                    leftrecur.insert(nt, prods);
+                } else {
+                    not_leftrecur.insert(nt, prods);
+                }
+            }
+
+            for (nt,prods) in leftrecur.mut_iter() {
+
+            }
+
+            for (_,v) in leftrecur.iter().chain(not_leftrecur.iter()) {
+                for p in v.iter() {
+                    pvec.push(p.clone());
+                }
+            }
+*/
+            Grammar { start: self.start.clone(), productions: pvec }
+        }
+    }
 
     // Eliminating all (immediate and multi-step) left recursion from a
     // grammar, for grammars with no cycles or \epsilon-productions.
