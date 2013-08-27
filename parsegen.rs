@@ -315,6 +315,26 @@ mod grammar {
         accum
     }
 
+    impl<T,NT:Eq> Prod<T,NT> {
+        fn is_empty(&self) -> bool { self.body.len() == 0 }
+        fn is_left_recursive(&self) -> bool {
+            self.body.len() >= 1 && match self.body[0] {
+                T(_) => false, NT(ref h) => &self.head == h
+            }
+        }
+        fn is_trivial_cycle(&self) -> bool {
+            self.body.len() == 1 && self.is_left_recursive()
+        }
+    }
+
+    fn has_empty<T,NT:Eq>(prods:&[Prod<T,NT>]) -> bool {
+        prods.iter().any(|p| p.is_empty() )
+    }
+
+    fn has_left_recursion<T,NT:Eq>(prods:&[Prod<T, NT>]) -> bool {
+        prods.iter().any(|p| p.is_left_recursive() )
+    }
+
 
     // Eliminating all (immediate and multi-step) left recursion from a
     // grammar, for grammars with no cycles or \epsilon-productions.
