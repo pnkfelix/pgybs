@@ -134,6 +134,52 @@ mod grammar {
             production!( S ->                         ),
         ])}
 
+    fn ex_elim_amb_1() -> StaticGrammar { Grammar {
+        start: "stmt",
+        productions: ~[
+            production!( stmt -> T:"if" N:expr T:"then" N:stmt                 ),
+            production!( stmt -> T:"if" N:expr T:"then" N:stmt T:"else" N:stmt ),
+            production!( stmt -> T:"other"                                     ),
+        ]}}
+
+    fn ex_elim_amb_2() -> StaticGrammar { Grammar {
+        start: "stmt",
+        productions: ~[
+            production!( stmt           -> N:matched_stmt                          ),
+            production!( stmt           -> N:unmatched_stmt                        ),
+            production!( matched_stmt   -> T:"if" N:expr
+                                           T:"then" N:matched_stmt
+                                           T:"else" N:matched_stmt                 ),
+            production!( matched_stmt   -> T:"other"                               ),
+            production!( unmatched_stmt -> T:"if" N:expr T:"then" N:stmt           ),
+            production!( unmatched_stmt -> T:"if" N:expr T:"then" N:matched_stmt
+                                                         T:"else" N:unmatched_stmt ),
+       ]}}
+
+    fn ex_left_recur_1() -> StaticGrammar { Grammar {
+        start: "E",
+        productions: ~[
+            production!( E -> N:E T:"T" N:T   ),
+            production!( E -> N:T             ),
+            production!( T -> N:T T:"*" N:F   ),
+            production!( T -> N:F             ),
+            production!( F -> T:"(" N:E T:")" ),
+            production!( F -> T:"id"          ),
+        ]}}
+
+    fn ex_left_recur_2() -> StaticGrammar { Grammar {
+        start: "E",
+        productions: ~[
+            production!(  E -> N:T N:E2        ),
+            production!( E2 -> T:"+" N:T N:E2  ),
+            production!(  T -> N:F N:T2        ),
+            production!( T2 -> T:"*" N:F N:T2  ),
+            production!( T2 ->                 ),
+            production!(  F -> T:"(" N:E T:")" ),
+            production!(  F -> T:"id"          ),
+        ]}}
+
+
     #[test]
     fn whoa() {
         let ex4_5 = example_4_5();
@@ -141,6 +187,9 @@ mod grammar {
         println(fmt!("%s\n", example_4_6().to_str()));
         println(fmt!("%s\n", example_4_7().to_str()));
         println(fmt!("%s\n", example_4_13().to_str()));
+        println(fmt!("%s\n", ex_elim_amb_1().to_str()));
+        println(fmt!("%s\n", ex_left_recur_1().to_str()));
+        println(fmt!("%s\n", ex_left_recur_2().to_str()));
     }
 }
 
