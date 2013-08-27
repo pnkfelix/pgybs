@@ -11,11 +11,11 @@ mod grammar {
     trait Terminal { }
     trait NonTerminal { }
 
-    enum Sym<T,NT> { T(T), NT(NT) }
+    enum ProductionSym<T,NT> { T(T), NT(NT) }
 
     struct Production<T, NT> {
         head: NT,
-        body: ~[Sym<T, NT>],
+        body: ~[ProductionSym<T, NT>],
     }
 
     struct Grammar<T, NT> {
@@ -28,7 +28,7 @@ mod grammar {
         fn gensym() -> Self;
     }
 
-    impl<T:ToStr,NT:ToStr> ToStr for Sym<T,NT> {
+    impl<T:ToStr,NT:ToStr> ToStr for ProductionSym<T,NT> {
         fn to_str(&self) -> ~str {
             match *self {
                 T(ref t)   => ~"\"" + t.to_str() + "\"",
@@ -66,7 +66,7 @@ mod grammar {
         }
     }
 
-    fn production<T,NT>(h:NT, b: ~[Sym<T,NT>]) -> Production<T,NT> {
+    fn production<T,NT>(h:NT, b: ~[ProductionSym<T,NT>]) -> Production<T,NT> {
         Production { head:h, body:b }
     }
 
