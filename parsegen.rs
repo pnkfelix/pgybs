@@ -28,6 +28,36 @@ mod grammar {
         fn gensym() -> Self;
     }
 
+    enum SymVariant<T> { core(T), gensym(T, uint) }
+
+    struct SymbolRegistry(@mut uint);
+
+    fn new_symbol_registry() -> SymbolRegistry {
+        SymbolRegistry(@mut 0)
+    }
+
+    struct Sym<T> {
+        registry: SymbolRegistry,
+        value: SymVariant<T>
+    }
+
+    fn sym<T>(registry: SymbolRegistry, value: SymVariant<T>) -> Sym<T> {
+        Sym{ registry: registry, value: value }
+    }
+
+    impl<T:ToStr> ToStr for SymVariant<T> {
+        fn to_str(&self) -> ~str {
+            match self {
+                &core(ref t) => t.to_str(),
+                &gensym(ref t, count) => t.to_str() + "_" + count.to_str()
+            }
+        }
+    }
+
+    impl<T:ToStr> ToStr for Sym<T> {
+        fn to_str(&self) -> ~str { self.value.to_str() }
+    }
+
     impl<T:ToStr,NT:ToStr> ToStr for ProductionSym<T,NT> {
         fn to_str(&self) -> ~str {
             match *self {
@@ -70,138 +100,150 @@ mod grammar {
         Production { head:h, body:b }
     }
 
+    // The $G argument is the SymbolRegistry.  (Originally I used a
+    // tricky of overloading the N to act as a tag and also a binding
+    // for the registry, but was not sufficient since the head of the
+    // production needs the registry (even when the right hand side
+    // has no non-terminals occurrences).
+
     macro_rules! production (
-        ($H:ident -> $($T:ident : $S:expr)*) => (
-            production(stringify!($H), ~[$(symbolify!($T $S)),*])
+        ($G:ident $H:ident -> $($T:ident : $S:expr)*) => (
+            production(sym($G, core(stringify!($H))), ~[$(symbolify!($G $T $S)),*])
         )
     )
 
     macro_rules! symbolify (
-        (N $N:expr) => ( NT(stringify!($N)) );
-        (T $T:expr) => ( T($T)              );
+        (       $G:ident N $NT:expr) => ( NT(sym($G, core(stringify!($NT)))) );
+        ( $ignored:ident T $T:expr)  => (  T($T)                             );
     )
 
-    type StaticGrammar = Grammar<&'static str,&'static str>;
+    type StaticGrammar = Grammar<&'static str, Sym<&'static str>>;
 
-    fn example_4_5() -> StaticGrammar { Grammar {
-        start: "expression",
+    fn example_4_5() -> StaticGrammar { let G = new_symbol_registry(); Grammar {
+        start: sym(G, core("expression")),
         productions: ~[
-            production!( expression -> N:expression T:"+" N:term ),
-            production!( expression -> N:expression T:"-" N:term ),
-            production!( expression -> N:term                    ),
-            production!(       term -> N:term T:"*" N:factor     ),
-            production!(       term -> N:term T:"/" N:factor     ),
-            production!(       term -> N:factor                  ),
-            production!(     factor -> T:"(" N:expression T:")"  ),
-            production!(     factor -> T:"id"                    ),
+            production!( G expression -> N:expression T:"+" N:term ),
+            production!( G expression -> N:expression T:"-" N:term ),
+            production!( G expression -> N:term                    ),
+            production!( G       term -> N:term T:"*" N:factor     ),
+            production!( G       term -> N:term T:"/" N:factor     ),
+            production!( G       term -> N:factor                  ),
+            production!( G     factor -> T:"(" N:expression T:")"  ),
+            production!( G     factor -> T:"id"                    ),
         ]}}
 
-    fn example_4_6() -> StaticGrammar { Grammar {
-        start: "E",
+    fn example_4_6() -> StaticGrammar { let G = new_symbol_registry(); Grammar {
+        start: sym(G, core("E")),
         productions: ~[
-            production!( E -> N:E T:"+" N:T   ), // E -> E + T | E - T | T
-            production!( E -> N:E T:"-" N:T   ),
-            production!( E -> N:T             ),
+            production!( G E -> N:E T:"+" N:T   ), // E -> E + T | E - T | T
+            production!( G E -> N:E T:"-" N:T   ),
+            production!( G E -> N:T             ),
 
-            production!( T -> N:T T:"*" N:F   ), // T -> T * F | T / F | F
-            production!( T -> N:T T:"/" N:F   ),
+            production!( G T -> N:T T:"*" N:F   ), // T -> T * F | T / F | F
+            production!( G T -> N:T T:"/" N:F   ),
 
-            production!( F -> T:"(" N:E T:")" ), // F -> ( E ) | id
-            production!( F -> T:"id"          ),
+            production!( G F -> T:"(" N:E T:")" ), // F -> ( E ) | id
+            production!( G F -> T:"id"          ),
         ]}}
 
-    fn example_4_7() -> StaticGrammar { Grammar {
-        start: "E",
+    fn example_4_7() -> StaticGrammar { let G = new_symbol_registry(); Grammar {
+        start: sym(G, core("E")),
         productions: ~[
-            production!( E -> N:E T:"+" N:E   ), // E -> E + E | E * E | - E | ( E ) | id
-            production!( E -> N:E T:"*" N:E   ),
-            production!( E -> T:"-" N:E       ),
-            production!( E -> T:"(" N:E T:")" ),
-            production!( E -> T:"id"          ),
+            production!( G E -> N:E T:"+" N:E   ), // E -> E + E | E * E | - E | ( E ) | id
+            production!( G E -> N:E T:"*" N:E   ),
+            production!( G E -> T:"-" N:E       ),
+            production!( G E -> T:"(" N:E T:")" ),
+            production!( G E -> T:"id"          ),
         ]}}
 
-    fn example_4_13() -> StaticGrammar { Grammar {
-        start: "S",
+    fn example_4_13() -> StaticGrammar { let G = new_symbol_registry(); Grammar {
+        start: sym(G, core("S")),
         productions: ~[
-            production!( S -> T:"(" N:S T:")" ), // S -> ( S ) S | \epsilon
-            production!( S -> ),
+            production!( G S -> T:"(" N:S T:")" ), // S -> ( S ) S | \epsilon
+            production!( G S -> ),
         ]}}
 
-    fn exercise_4_2_1() -> StaticGrammar { let _ = "aa+a*"; Grammar {
-        start: "S",
+    fn exercise_4_2_1() -> StaticGrammar { let _ = "aa+a*";
+        let G = new_symbol_registry(); Grammar {
+        start: sym(G, core("S")),
         productions: ~[
-            production!( S -> N:S N:S T:"+" ), // S -> S S + | S S * | a
-            production!( S -> N:S N:S T:"*" ),
-            production!( S -> T:"a"         ),
+            production!( G S -> N:S N:S T:"+" ), // S -> S S + | S S * | a
+            production!( G S -> N:S N:S T:"*" ),
+            production!( G S -> T:"a"         ),
         ]}}
 
     fn exercise_4_2_2_help(input: &'static str,
-                           prods: ~[Production<&'static str, &'static str>]) -> StaticGrammar {
-        let _ = input; Grammar{ start: "S", productions: prods }
+                           n: SymbolRegistry,
+                           prods: ~[Production<&'static str, Sym<&'static str>>]) -> StaticGrammar {
+        let _ = input;
+        Grammar{ start: sym(n, core("S")), productions: prods }
     }
 
     fn exercise_4_2_2_a() -> StaticGrammar {
-        exercise_4_2_2_help("000111", ~[
-            production!( S -> T:"0" N:S T:"1" ), // S -> 0 S 1 | 0 1
-            production!( S -> T:"0" T:"1"     ),
+        let G = new_symbol_registry();
+        exercise_4_2_2_help("000111", G, ~[
+            production!( G S -> T:"0" N:S T:"1" ), // S -> 0 S 1 | 0 1
+            production!( G S -> T:"0" T:"1"     ),
         ])}
 
     fn exercise_4_2_2_b() -> StaticGrammar {
-        exercise_4_2_2_help("+*aaa", ~[
-            production!( S -> T:"+" N:S N:S ), // S -> + S S | * S S | a
-            production!( S -> T:"*" N:S N:S ),
-            production!( S -> T:"a"         ),
+        let G = new_symbol_registry();
+        exercise_4_2_2_help("+*aaa", G, ~[
+            production!( G S -> T:"+" N:S N:S ), // S -> + S S | * S S | a
+            production!( G S -> T:"*" N:S N:S ),
+            production!( G S -> T:"a"         ),
         ])}
 
     fn exercise_4_2_2_c() -> StaticGrammar {
-        exercise_4_2_2_help("(()())", ~[
-            production!( S -> N:S T:"(" N:S T:")" N:S ), // S -> S ( S ) S | \epsilon
-            production!( S ->                         ),
+        let G = new_symbol_registry();
+        exercise_4_2_2_help("(()())", G, ~[
+            production!( G S -> N:S T:"(" N:S T:")" N:S ), // S -> S ( S ) S | \epsilon
+            production!( G S ->                         ),
         ])}
 
-    fn ex_elim_amb_1() -> StaticGrammar { Grammar {
-        start: "stmt",
+    fn ex_elim_amb_1() -> StaticGrammar { let G = new_symbol_registry(); Grammar {
+        start: sym(G, core("stmt")),
         productions: ~[
-            production!( stmt -> T:"if" N:expr T:"then" N:stmt                 ),
-            production!( stmt -> T:"if" N:expr T:"then" N:stmt T:"else" N:stmt ),
-            production!( stmt -> T:"other"                                     ),
+            production!( G stmt -> T:"if" N:expr T:"then" N:stmt                 ),
+            production!( G stmt -> T:"if" N:expr T:"then" N:stmt T:"else" N:stmt ),
+            production!( G stmt -> T:"other"                                     ),
         ]}}
 
-    fn ex_elim_amb_2() -> StaticGrammar { Grammar {
-        start: "stmt",
+    fn ex_elim_amb_2() -> StaticGrammar { let G = new_symbol_registry(); Grammar {
+        start: sym(G, core("stmt")),
         productions: ~[
-            production!( stmt           -> N:matched_stmt                          ),
-            production!( stmt           -> N:unmatched_stmt                        ),
-            production!( matched_stmt   -> T:"if" N:expr
-                                           T:"then" N:matched_stmt
-                                           T:"else" N:matched_stmt                 ),
-            production!( matched_stmt   -> T:"other"                               ),
-            production!( unmatched_stmt -> T:"if" N:expr T:"then" N:stmt           ),
-            production!( unmatched_stmt -> T:"if" N:expr T:"then" N:matched_stmt
-                                                         T:"else" N:unmatched_stmt ),
+            production!( G stmt           -> N:matched_stmt                          ),
+            production!( G stmt           -> N:unmatched_stmt                        ),
+            production!( G matched_stmt   -> T:"if" N:expr
+                                             T:"then" N:matched_stmt
+                                             T:"else" N:matched_stmt                 ),
+            production!( G matched_stmt   -> T:"other"                               ),
+            production!( G unmatched_stmt -> T:"if" N:expr T:"then" N:stmt           ),
+            production!( G unmatched_stmt -> T:"if" N:expr T:"then" N:matched_stmt
+                                                           T:"else" N:unmatched_stmt ),
        ]}}
 
-    fn ex_left_recur_1() -> StaticGrammar { Grammar {
-        start: "E",
+    fn ex_left_recur_1() -> StaticGrammar { let G = new_symbol_registry(); Grammar {
+        start: sym(G, core("E")),
         productions: ~[
-            production!( E -> N:E T:"T" N:T   ),
-            production!( E -> N:T             ),
-            production!( T -> N:T T:"*" N:F   ),
-            production!( T -> N:F             ),
-            production!( F -> T:"(" N:E T:")" ),
-            production!( F -> T:"id"          ),
+            production!( G E -> N:E T:"T" N:T   ),
+            production!( G E -> N:T             ),
+            production!( G T -> N:T T:"*" N:F   ),
+            production!( G T -> N:F             ),
+            production!( G F -> T:"(" N:E T:")" ),
+            production!( G F -> T:"id"          ),
         ]}}
 
-    fn ex_left_recur_2() -> StaticGrammar { Grammar {
-        start: "E",
+    fn ex_left_recur_2() -> StaticGrammar { let G = new_symbol_registry(); Grammar {
+        start: sym(G, core("E")),
         productions: ~[
-            production!(  E -> N:T N:E2        ),
-            production!( E2 -> T:"+" N:T N:E2  ),
-            production!(  T -> N:F N:T2        ),
-            production!( T2 -> T:"*" N:F N:T2  ),
-            production!( T2 ->                 ),
-            production!(  F -> T:"(" N:E T:")" ),
-            production!(  F -> T:"id"          ),
+            production!( G  E -> N:T N:E2        ),
+            production!( G E2 -> T:"+" N:T N:E2  ),
+            production!( G  T -> N:F N:T2        ),
+            production!( G T2 -> T:"*" N:F N:T2  ),
+            production!( G T2 ->                 ),
+            production!( G  F -> T:"(" N:E T:")" ),
+            production!( G  F -> T:"id"          ),
         ]}}
 
     // Eliminating immediate left recursion for A is the transformation of
