@@ -11,16 +11,18 @@ mod grammar {
     trait Terminal { }
     trait NonTerminal { }
 
+    #[deriving(Clone)]
     enum ProductionSym<T,NT> { T(T), NT(NT) }
 
-    struct Production<T, NT> {
+    #[deriving(Clone)]
+    struct Prod<T, NT> {
         head: NT,
         body: ~[ProductionSym<T, NT>],
     }
 
     struct Grammar<T, NT> {
         start: NT,
-        productions: ~[Production<T,NT>],
+        productions: ~[Prod<T,NT>],
     }
 
     trait Primable {
@@ -31,14 +33,17 @@ mod grammar {
         fn gensym(&mut Registry) -> Self;
     }
 
+    #[deriving(Eq,Clone)]
     enum SymVariant<T> { core(T), gensym(T, uint) }
 
+    #[deriving(Eq)]
     struct SymbolRegistry(@mut uint);
 
     fn new_symbol_registry() -> SymbolRegistry {
         SymbolRegistry(@mut 0)
     }
 
+    #[deriving(Eq)]
     struct Sym<T> {
         registry: SymbolRegistry,
         value: SymVariant<T>
@@ -46,6 +51,12 @@ mod grammar {
 
     fn sym<T>(registry: SymbolRegistry, value: SymVariant<T>) -> Sym<T> {
         Sym{ registry: registry, value: value }
+    }
+
+    impl<T:Clone> Clone for Sym<T> {
+        fn clone(&self) -> Sym<T> {
+            sym(self.registry, self.value.clone())
+        }
     }
 
     impl<T:Clone> Primable for Sym<T> {
@@ -89,13 +100,13 @@ mod grammar {
         }
     }
 
-    impl<T:ToStr,NT:ToStr> ToStr for Production<T,NT> {
+    impl<T:ToStr,NT:ToStr> ToStr for Prod<T,NT> {
         fn to_str(&self) -> ~str {
             self.to_str_head_aligned(0)
         }
     }
 
-    impl<T:ToStr,NT:ToStr> Production<T,NT> {
+    impl<T:ToStr,NT:ToStr> Prod<T,NT> {
         fn to_str_head_aligned(&self, width:uint) -> ~str {
             let head = self.head.to_str();
             let head = fill_left("<"+head+">", ' ', width+2);
@@ -110,8 +121,8 @@ mod grammar {
         }
     }
 
-    fn production<T,NT>(h:NT, b: ~[ProductionSym<T,NT>]) -> Production<T,NT> {
-        Production { head:h, body:b }
+    fn production<T,NT>(h:NT, b: ~[ProductionSym<T,NT>]) -> Prod<T,NT> {
+        Prod { head:h, body:b }
     }
 
     // The $G argument is the SymbolRegistry.  (Originally I used a
@@ -188,7 +199,7 @@ mod grammar {
 
     fn exercise_4_2_2_help(input: &'static str,
                            n: SymbolRegistry,
-                           prods: ~[Production<&'static str, Sym<&'static str>>]) -> StaticGrammar {
+                           prods: ~[Prod<&'static str, Sym<&'static str>>]) -> StaticGrammar {
         let _ = input;
         Grammar{ start: sym(n, core("S")), productions: prods }
     }
@@ -260,18 +271,49 @@ mod grammar {
             production!( G  F -> T:"id"          ),
         ]}}
 
-    // Eliminating immediate left recursion for A is the transformation of
-    //
-    //    A -> A \alpha_1 | A \alpha_2 | ... | A \alpha_m
-    //       | \beta_1 | \beta_2 | ... | \beta_n
-    //
-    // where no \beta_i begins with an A (and no \alpha_i is \epsilon),
-    // replacing the A-productions by:
-    //
-    //    A -> \beta_1 A2 | \beta_2 A2 | ... | \beta_n A2
-    //   A2 -> \alpha_1 A2 | \alpha_2 A2 | ... \alpha_m A2 | \epsilon
-    //
-    // where A2 is fresh.
+    fn eliminate_immediate_left_recursion<T:Clone,NT:Eq+Clone+Primable>(prods:&[Prod<T, NT>])
+        -> ~[Prod<T,NT>] {
+
+        type P = Prod<T,NT>;
+        type PS = ProductionSym<T,NT>;
+
+        // Eliminating immediate left recursion for A is the transformation of
+        //
+        //    A -> A \alpha_1 | A \alpha_2 | ... | A \alpha_m
+        //       | \beta_1 | \beta_2 | ... | \beta_n
+        //
+        // where no \beta_i begins with an A (and no \alpha_i is \epsilon),
+        // replacing the A-productions by:
+        //
+        //    A -> \beta_1 A2 | \beta_2 A2 | ... | \beta_n A2
+        //   A2 -> \alpha_1 A2 | \alpha_2 A2 | ... \alpha_m A2 | \epsilon
+        //
+        // where A2 is fresh.
+
+        let mut accum : ~[P] = ~[];
+        if prods.len() > 0 {
+            let a = &prods[0].head;
+            let bodies : ~[~[PS]] = prods.map(|p| { assert!(p.head == *a); p.body.clone() });
+            let (alphas, betas) : (~[~[PS]], ~[~[PS]]) =
+                bodies.partitioned(|b|
+                                   b.len() > 0 &&
+                                   match b[0] { T(_) => false, NT(ref s) => a == s });
+            let alphas = alphas.map(|b| { assert!(b.len() > 1); b.slice_from(1).to_owned() });
+
+            let a2 = a.prime();
+            let new_beta_bodies  : ~[~[PS]] = betas.map(|b| {
+                    let mut b = b.clone(); b.push(NT(a2.clone())); b });
+            let mut new_alpha_bodies : ~[~[PS]] = alphas.map(|b| {
+                    let mut b = b.clone(); b.push(NT(a2.clone())); b });
+            new_alpha_bodies.push(~[]);
+
+            for b_body in new_beta_bodies.iter() {
+                accum.push(production(a.clone(), b_body.clone())); }
+            for a_body in new_alpha_bodies.iter() {
+                accum.push(production(a2.clone(), a_body.clone())) }
+        }
+        accum
+    }
 
 
     // Eliminating all (immediate and multi-step) left recursion from a
@@ -299,6 +341,7 @@ mod grammar {
         println(fmt!("%s\n", ex_elim_amb_1().to_str()));
         println(fmt!("%s\n", ex_left_recur_1().to_str()));
         println(fmt!("%s\n", ex_left_recur_2().to_str()));
+        println(fmt!("%s\n", eliminate_immediate_left_recursion(ex_elim_amb_1().productions).to_str()));
     }
 }
 
