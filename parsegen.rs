@@ -23,9 +23,12 @@ mod grammar {
         productions: ~[Production<T,NT>],
     }
 
-    trait GenFresh {
+    trait Primable {
         fn prime(&self) -> Self;
-        fn gensym() -> Self;
+    }
+
+    trait GenFresh<Registry> : Primable {
+        fn gensym(&mut Registry) -> Self;
     }
 
     enum SymVariant<T> { core(T), gensym(T, uint) }
@@ -43,6 +46,17 @@ mod grammar {
 
     fn sym<T>(registry: SymbolRegistry, value: SymVariant<T>) -> Sym<T> {
         Sym{ registry: registry, value: value }
+    }
+
+    impl<T:Clone> Primable for Sym<T> {
+        fn prime(&self) -> Sym<T> {
+            let g = self.registry;
+            let count : uint = **g;
+            let count = count + 1;
+            **self.registry = count;
+            let t = match self.value { core(ref t) => t, gensym(ref t,_) => t };
+            sym(self.registry, gensym(t.clone(), count))
+        }
     }
 
     impl<T:ToStr> ToStr for SymVariant<T> {
