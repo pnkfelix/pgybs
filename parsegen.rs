@@ -5,6 +5,9 @@
 // and perhaps also for long term.
 
 mod grammar {
+    use std::str;
+    use std::cmp;
+
     trait Terminal { }
     trait NonTerminal { }
 
@@ -24,15 +27,32 @@ mod grammar {
         }
     }
 
+    fn fill_left(s:~str, c:char, width:uint) -> ~str {
+        if s.char_len() < width {
+            str::from_char(c).repeat(width - s.char_len()) + s
+        } else {
+            s
+        }
+    }
+
     impl<T:ToStr,NT:ToStr> ToStr for Production<T,NT> {
         fn to_str(&self) -> ~str {
-            ~"<" + self.head.to_str() + "> ::= " + self.body.map(|x|x.to_str()).connect(" ")
+            self.to_str_head_aligned(0)
+        }
+    }
+
+    impl<T:ToStr,NT:ToStr> Production<T,NT> {
+        fn to_str_head_aligned(&self, width:uint) -> ~str {
+            let head = self.head.to_str();
+            let head = fill_left("<"+head+">", ' ', width+2);
+            head + " ::= " + self.body.map(|x|x.to_str()).connect(" ")
         }
     }
 
     impl<T:ToStr,NT:ToStr> ToStr for Grammar<T,NT> {
         fn to_str(&self) -> ~str {
-            self.productions.map(|x|x.to_str()).connect("\n")
+            let w = self.productions.iter().map(|x|x.head.to_str().char_len()).fold(0u, cmp::max);
+            self.productions.map(|x|x.to_str_head_aligned(w)).connect("\n")
         }
     }
 
