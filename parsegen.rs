@@ -18,6 +18,16 @@ mod grammar {
         body: ~[Sym<T, NT>],
     }
 
+    struct Grammar<T, NT> {
+        start: NT,
+        productions: ~[Production<T,NT>],
+    }
+
+    trait GenFresh {
+        fn prime(&self) -> Self;
+        fn gensym() -> Self;
+    }
+
     impl<T:ToStr,NT:ToStr> ToStr for Sym<T,NT> {
         fn to_str(&self) -> ~str {
             match *self {
@@ -58,11 +68,6 @@ mod grammar {
 
     fn production<T,NT>(h:NT, b: ~[Sym<T,NT>]) -> Production<T,NT> {
         Production { head:h, body:b }
-    }
-
-    struct Grammar<T, NT> {
-        start: NT,
-        productions: ~[Production<T,NT>],
     }
 
     macro_rules! production (
@@ -199,6 +204,34 @@ mod grammar {
             production!(  F -> T:"id"          ),
         ]}}
 
+    // Eliminating immediate left recursion for A is the transformation of
+    //
+    //    A -> A \alpha_1 | A \alpha_2 | ... | A \alpha_m
+    //       | \beta_1 | \beta_2 | ... | \beta_n
+    //
+    // where no \beta_i begins with an A (and no \alpha_i is \epsilon),
+    // replacing the A-productions by:
+    //
+    //    A -> \beta_1 A2 | \beta_2 A2 | ... | \beta_n A2
+    //   A2 -> \alpha_1 A2 | \alpha_2 A2 | ... \alpha_m A2 | \epsilon
+    //
+    // where A2 is fresh.
+
+
+    // Eliminating all (immediate and multi-step) left recursion from a
+    // grammar, for grammars with no cycles or \epsilon-productions.
+    // (Note that the resulting grammar may have \epsilon productions.)
+    //
+    // Let the nonterminals be A_1, A_2, ..., A_n
+    //
+    // for i := 1 to n do:
+    //   for j := 1 to i-1 do:
+    //     replace each production of the form A_i -> A_j \gamma
+    //       by the productions A_i -> \delta_1 \gamma | \delta_2 \gamma | ... | \delta_k \gamma,
+    //       where A_j -> \delta_1 | \delta_2 | ... | \delta_k are all the current A_j-productions;
+    //   end
+    //   eliminate the immediate left recursion among the A_i productions
+    // end
 
     #[test]
     fn whoa() {
