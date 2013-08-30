@@ -8,6 +8,8 @@ mod grammar {
     use std::str;
     use std::cmp;
     use std::hashmap::HashMap;
+    use std::to_bytes;
+
 
     trait Terminal { }
     trait NonTerminal { }
@@ -44,20 +46,36 @@ mod grammar {
         fn gensym(&mut Registry) -> Self;
     }
 
-    #[deriving(Eq,Clone)]
+    #[deriving(Eq,Clone,IterBytes)]
     enum SymVariant<T> { core(T), gensym(T, uint) }
 
-    #[deriving(Eq)]
     struct SymbolRegistry(@mut uint);
+
+    impl Eq for SymbolRegistry {
+        fn eq(&self, other: &SymbolRegistry) -> bool {
+            use std::managed;
+            managed::mut_ptr_eq(**self, **other)
+        }
+    }
 
     fn new_symbol_registry() -> SymbolRegistry {
         SymbolRegistry(@mut 0)
+    }
+
+    impl SymbolRegistry {
+        fn sym<T>(&self, v:T) -> Sym<T> { sym(*self, core(v)) }
     }
 
     #[deriving(Eq)]
     struct Sym<T> {
         registry: SymbolRegistry,
         value: SymVariant<T>
+    }
+
+    impl<T:IterBytes> IterBytes for Sym<T> {
+        fn iter_bytes(&self, lsb0: bool, f: to_bytes::Cb) -> bool {
+            self.value.iter_bytes(lsb0, f)
+        }
     }
 
     fn sym<T>(registry: SymbolRegistry, value: SymVariant<T>) -> Sym<T> {
@@ -360,9 +378,13 @@ mod grammar {
 */
 
 
-    impl<T:Clone,NT:Eq+Hash+Clone> Grammar<T,NT> {
+    impl<T:Clone,NT:Eq+Hash+Clone+Primable> Grammar<T,NT> {
         fn eliminate_left_recursion(&self) -> Grammar<T,NT> {
-            type NTMap = HashMap<NT, ~[Prod<T,NT>]>;
+            use std::vec;
+
+            type Rules = ~[Prod<T,NT>];
+            type Bodies = ~[PBody<T,NT>];
+            type NTMap = HashMap<NT, Rules>;
             let mut rules : NTMap = HashMap::new();
             for p in self.productions.iter() {
                 do rules.insert_or_update_with(p.head.clone(), ~[p.clone()]) |_,v| {
@@ -370,47 +392,42 @@ mod grammar {
                 };
             }
 
-            let keys : ~[NT] = rules.iter().map(|(k,v)|k.clone()).collect();
-            let mut seen_keys : ~[NT] = ~[];
-            for A_i in keys.iter() {
-                for A_j in seen_keys.iter() {
-                    for body in rules.get(A_i).iter().map(|p|p.body.clone()) {
-                        if body[0].matches_nt(A_j) {
-                           /* XXX: replacement here */
+            let keys : ~[NT] = rules.iter().map(|(k,_v)|k.clone()).collect();
+            for i in range(0, keys.len()) {
+                let A_i = keys[i].clone();
+                for j in range(0, i) {
+                    let A_j = keys[j].clone();
+
+                    // replace each production of the form A_i -> A_j \gamma
+                    //   by the productions { A_i -> \delta_l \gamma | l in {1..k} }
+                    //   where A_j -> \delta_1 | \delta_2 | ... | \delta_k
+                    //   are all the current A_j-productions;
+
+                    let deltas : Bodies = rules.get(&A_j).iter().map(|p|p.body.clone()).collect();
+                    let mut new_rules : Rules = ~[];
+                    for p in rules.get(&A_i).iter() {
+                        let body = p.body.clone();
+                        if body.len() > 0 && body[0].matches_nt(&A_j) {
+                            let gamma = body.slice_from(1);
+                            for delta in deltas.iter().map(|pb|(**pb).clone()) {
+                                new_rules.push(production(A_i.clone(), vec::append(delta, gamma)));
+                            }
                         } else {
-                           /* do nothing */
+                            new_rules.push(p.clone());
                         }
                     }
+                    rules.insert(A_i.clone(), new_rules);
                 }
-                seen_keys.push(A_i.clone());
-            }
-            for (nt, prods) in rules.mut_iter() {
-                
+
+                let new_rules = eliminate_immediate_left_recursion(*rules.get(&A_i));
+                rules.insert(A_i, new_rules);
             }
 
-            let mut pvec : ~[Prod<T,NT>] = ~[];
-/*
-            let mut leftrecur : NTMap = HashMap::new();
-            let mut not_leftrecur : NTMap = HashMap::new();
-            for (nt,prods) in rules.move_iter() {
-                if prods.iter().any(|p|p.is_left_recursive()) {
-                    leftrecur.insert(nt, prods);
-                } else {
-                    not_leftrecur.insert(nt, prods);
-                }
+            let mut new_prods : ~[Prod<T,NT>] = ~[];
+            for (_nt, prods) in rules.iter() {
+                new_prods.push_all(*prods);
             }
-
-            for (nt,prods) in leftrecur.mut_iter() {
-
-            }
-
-            for (_,v) in leftrecur.iter().chain(not_leftrecur.iter()) {
-                for p in v.iter() {
-                    pvec.push(p.clone());
-                }
-            }
-*/
-            Grammar { start: self.start.clone(), productions: pvec }
+            Grammar { start: self.start.clone(), productions: new_prods }
         }
     }
 
@@ -430,8 +447,14 @@ mod grammar {
     // end
 
     #[test]
-    fn elim_immed_left() {
+    fn elim_immed_left_rec() {
         let g = eliminate_immediate_left_recursion(ex_elim_amb_1().productions);
+        println(fmt!("%s\n", g.to_str()));
+    }
+
+    #[test]
+    fn elim_left_rec() {
+        let g = ex_left_recur_1().eliminate_left_recursion();
         println(fmt!("%s\n", g.to_str()));
     }
 
