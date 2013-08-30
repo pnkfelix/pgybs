@@ -430,6 +430,12 @@ mod grammar {
     // end
 
     #[test]
+    fn elim_immed_left() {
+        let g = eliminate_immediate_left_recursion(ex_elim_amb_1().productions);
+        println(fmt!("%s\n", g.to_str()));
+    }
+
+    #[test]
     fn whoa() {
         let ex4_5 = example_4_5();
         println(fmt!("%s\n", ex4_5.to_str()));
@@ -439,7 +445,6 @@ mod grammar {
         println(fmt!("%s\n", ex_elim_amb_1().to_str()));
         println(fmt!("%s\n", ex_left_recur_1().to_str()));
         println(fmt!("%s\n", ex_left_recur_2().to_str()));
-        println(fmt!("%s\n", eliminate_immediate_left_recursion(ex_elim_amb_1().productions).to_str()));
     }
 }
 
