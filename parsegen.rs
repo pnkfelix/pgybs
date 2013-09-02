@@ -4,6 +4,8 @@
 // I should strive to remain compatible with it, both for short-term
 // and perhaps also for long term.
 
+extern mod extra;
+
 mod grammar {
     use std::str;
     use std::cmp;
@@ -14,7 +16,7 @@ mod grammar {
     trait Terminal { }
     trait NonTerminal { }
 
-    #[deriving(Clone)]
+    #[deriving(Clone,Eq)]
     enum ProductionSym<T,NT> { T(T), NT(NT) }
 
     impl<T,NT:Eq> ProductionSym<T,NT> {
@@ -23,8 +25,50 @@ mod grammar {
         }
     }
 
+    impl<T:Ord,NT:Ord> Ord for ProductionSym<T,NT> {
+        fn lt(&self, other: &ProductionSym<T,NT>) -> bool {
+            match (self, other) {
+                ( &T(_),       &NT(_))     => true,
+                (&NT(_),       &T(_))      => false,
+                ( &T(ref t1),  &T(ref t2)) => t1 <= t2,
+                (&NT(ref n1), &NT(ref n2)) => n1 <= n2
+            }
+        }
+    }
+
+    fn maximal_common_prefix<T:Eq+Clone>(v1: &[T], v2: &[T]) -> ~[T] {
+        let mut accum = ~[];
+        for (a, b) in v1.iter().zip(v2.iter()) {
+            if (a == b) {
+                accum.push(a.clone())
+            } else {
+                break;
+            }
+        }
+        accum
+    }
+
+    fn factor_suffix<'r, T:Eq+Clone>(alpha: &[T], vec: &'r [T]) -> Option<&'r [T]> {
+        if vec.len() < alpha.len() {
+            return None;
+        }
+        let prefix = vec.slice_to(alpha.len());
+        let suffix = vec.slice_from(alpha.len());
+        if prefix == alpha {
+            return Some(suffix);
+        } else {
+            return None;
+        }
+    }
+
     #[deriving(Clone)]
     struct PBody<T, NT>(~[ProductionSym<T, NT>]);
+
+    impl<T:Eq+Clone,NT:Eq+Clone> PBody<T,NT> {
+        fn maximal_common_prefix(&self, other: &PBody<T,NT>) -> ~[ProductionSym<T,NT>] {
+            maximal_common_prefix(**self, **other)
+        }
+    }
 
     #[deriving(Clone)]
     struct Prod<T, NT> { head: NT, body: PBody<T, NT> }
@@ -377,13 +421,48 @@ mod grammar {
     }
 */
 
+    struct LeftFactoring<T,NT> { orig: ~[Prod<T,NT>], fresh: ~[Prod<T,NT>], }
+
+    fn left_factor_onestep<T:Eq+Ord+Clone, NT:Eq+Ord+Clone+Primable>(rules: &[Prod<T,NT>])
+        -> Option<LeftFactoring<T,NT>> {
+        use extra::sort;
+        use std::vec;
+
+        let rules = do sort::merge_sort(rules) |r1, r2| {
+            *r1.body <= *r2.body
+        };
+        let i0 = rules.iter();
+        let mut i1 = rules.iter(); i1.next();
+        let (alt0, alt1) = do i0.zip(i1).max_by() |&(alt0, alt1)| {
+            alt0.body.maximal_common_prefix(&alt1.body).len()
+        }.unwrap();
+
+        let a = alt0.head.clone();
+        let alpha = alt0.body.maximal_common_prefix(&alt1.body);
+        if alpha.len() == 0 {
+            return None;
+        }
+
+        let a_prime = a.prime();
+        let mut new_a_rules = ~[];
+        let mut new_a2_rules = ~[];
+
+        let new_a_body = vec::append_one(alpha.clone(), NT(a_prime.clone()));
+        new_a_rules.push(production(a, new_a_body));
+
+        for r in rules.iter() {
+            match factor_suffix(alpha, *r.body) {
+                None => new_a_rules.push(r.clone()),
+                Some(suffix) => new_a2_rules.push(production(a_prime.clone(), suffix.to_owned()))
+            }
+        }
+
+        Some(LeftFactoring{ orig: new_a_rules, fresh: new_a2_rules })
+    }
 
     impl<T:Clone,NT:Eq+Hash+Clone+Primable> Grammar<T,NT> {
-        fn eliminate_left_recursion(&self) -> Grammar<T,NT> {
-            use std::vec;
-
+        fn to_nt_map(&self) -> HashMap<NT, ~[Prod<T,NT>]> {
             type Rules = ~[Prod<T,NT>];
-            type Bodies = ~[PBody<T,NT>];
             type NTMap = HashMap<NT, Rules>;
             let mut rules : NTMap = HashMap::new();
             for p in self.productions.iter() {
@@ -391,7 +470,25 @@ mod grammar {
                     v.push(p.clone());
                 };
             }
+            rules
+        }
 
+        fn from_nt_map(start: &NT, rules: &HashMap<NT, ~[Prod<T,NT>]>) -> Grammar<T,NT> {
+            let mut new_prods : ~[Prod<T,NT>] = ~[];
+            for (_nt, prods) in rules.iter() {
+                new_prods.push_all(*prods);
+            }
+            Grammar { start: start.clone(), productions: new_prods }
+        }
+
+        fn eliminate_left_recursion(&self) -> Grammar<T,NT> {
+            use std::vec;
+
+            type Rules = ~[Prod<T,NT>];
+            type Bodies = ~[PBody<T,NT>];
+            type NTMap = HashMap<NT, Rules>;
+
+            let mut rules : NTMap = self.to_nt_map();
             let keys : ~[NT] = rules.iter().map(|(k,_v)|k.clone()).collect();
             for i in range(0, keys.len()) {
                 let A_i = keys[i].clone();
@@ -423,11 +520,36 @@ mod grammar {
                 rules.insert(A_i, new_rules);
             }
 
-            let mut new_prods : ~[Prod<T,NT>] = ~[];
-            for (_nt, prods) in rules.iter() {
-                new_prods.push_all(*prods);
+            Grammar::from_nt_map(&self.start, &rules)
+        }
+    }
+
+    impl<T:Clone+Eq+Ord,NT:Clone+Eq+Ord+Hash+Primable> Grammar<T,NT> {
+        fn left_factor(&self) -> Grammar<T,NT> {
+            use extra::sort;
+
+            let mut rules = self.to_nt_map();
+            loop {
+                let keys : ~[NT] = rules.iter().map(|(k,_v)|k.clone()).collect();
+                let mut changed = false;
+                for k in keys.iter() {
+                    match left_factor_onestep(*rules.get(k)) {
+                        None => {},
+                        Some(LeftFactoring{ orig: orig, fresh: fresh }) => {
+                            rules.insert(orig[0].head.clone(), orig);
+                            rules.insert(fresh[0].head.clone(), fresh);
+                            changed = true;
+                            break;
+                        }
+                    }
+                }
+                if changed {
+                    loop;
+                } else {
+                    break;
+                }
             }
-            Grammar { start: self.start.clone(), productions: new_prods }
+            Grammar::from_nt_map(&self.start, &rules)
         }
     }
 
