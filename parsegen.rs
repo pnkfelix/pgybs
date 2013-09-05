@@ -10,7 +10,8 @@ extern mod extra;
 mod grammar {
     use std::str;
     use std::cmp;
-    use std::hashmap::HashMap;
+    // use std::hashmap::HashMap;
+    use extra::treemap::TreeMap;
     use std::to_bytes;
 
 
@@ -91,13 +92,20 @@ mod grammar {
         fn gensym(&mut Registry) -> Self;
     }
 
-    #[deriving(Eq,Clone,IterBytes,Ord)]
+    #[deriving(Eq,Clone,IterBytes,Ord,TotalOrd,TotalEq)]
     enum SymVariant<T> { core(T), gensym(T, uint) }
 
     struct SymbolRegistry(@mut uint);
 
     impl Eq for SymbolRegistry {
         fn eq(&self, other: &SymbolRegistry) -> bool {
+            use std::managed;
+            managed::mut_ptr_eq(**self, **other)
+        }
+    }
+
+    impl TotalEq for SymbolRegistry {
+        fn equals(&self, other: &SymbolRegistry) -> bool {
             use std::managed;
             managed::mut_ptr_eq(**self, **other)
         }
@@ -112,6 +120,15 @@ mod grammar {
         }
     }
 
+    impl TotalOrd for SymbolRegistry {
+        fn cmp(&self, other: &SymbolRegistry) -> Ordering {
+            use std::ptr;
+            let s = ptr::to_unsafe_ptr(**self);
+            let t = ptr::to_unsafe_ptr(**other);
+            (&(s as uint)).cmp(&(t as uint))
+        }
+    }
+
     fn new_symbol_registry() -> SymbolRegistry {
         SymbolRegistry(@mut 0)
     }
@@ -120,13 +137,14 @@ mod grammar {
         fn sym<T>(&self, v:T) -> Sym<T> { sym(*self, core(v)) }
     }
 
-    #[deriving(Eq, Ord)]
+    #[deriving(Eq, Ord, TotalOrd, TotalEq)]
     struct Sym<T> {
         registry: SymbolRegistry,
         value: SymVariant<T>
     }
 
     impl<T:IterBytes> IterBytes for Sym<T> {
+        // (don't include the registry in the hash)
         fn iter_bytes(&self, lsb0: bool, f: to_bytes::Cb) -> bool {
             self.value.iter_bytes(lsb0, f)
         }
@@ -370,6 +388,21 @@ mod grammar {
             production!( G  E -> T:"b" ),
         ]}}
 
+    fn exercise_4_3_1_input() -> StaticGrammar {
+        let G = new_symbol_registry(); Grammar {
+            start: sym(G, core("rexpr")),
+            productions: ~[
+                production!( G    rexpr -> N:rexpr T:"+" N:rterm ),
+                production!( G    rexpr -> N:rterm               ),
+                production!( G    rterm -> N:rterm N:rfactor     ),
+                production!( G    rterm -> N:rfactor             ),
+                production!( G  rfactor -> N:rfactor T:"*"       ),
+                production!( G  rfactor -> N:rprimary            ),
+                production!( G rprimary -> T:"a"                 ),
+                production!( G rprimary -> T:"b"                 ),
+        ]}
+    }
+
     fn eliminate_immediate_left_recursion<T:Clone,NT:Eq+Clone+Primable>(prods:&[Prod<T, NT>])
         -> ~[Prod<T,NT>] {
 
@@ -430,23 +463,6 @@ mod grammar {
         prods.iter().any(|p| p.is_left_recursive() )
     }
 
-/*
-    impl<T:Clone,NT:Hash+Eq+Clone> ToGrammar<T,NT> for (NT, HashMap<NT, ~[PBody<T,NT>]>) {
-        fn to_grammar(&self) -> Grammar<T,NT> {
-            let &(start, ht) = self;
-            let prods = ~[];
-            for (k,v) in ht.iter() {
-                for body in v.iter() {
-                    let body : PBody<T,NT> = *body;
-                    let p : Prod<T,NT> = Prod{ head: k, body: body };
-                    prods.push(p);
-                }
-            }
-            Grammar { start: start, productions: prods }
-        }
-    }
-*/
-
     struct LeftFactoring<T,NT> { orig: ~[Prod<T,NT>], fresh: ~[Prod<T,NT>], }
 
     fn left_factor_onestep<T:Eq+Ord+Clone, NT:Eq+Ord+Clone+Primable>(rules: &[Prod<T,NT>])
@@ -489,20 +505,24 @@ mod grammar {
         Some(LeftFactoring{ orig: new_a_rules, fresh: new_a2_rules })
     }
 
-    impl<T:Clone,NT:Eq+Hash+Clone+Primable> Grammar<T,NT> {
-        fn to_nt_map(&self) -> HashMap<NT, ~[Prod<T,NT>]> {
+    impl<T:Clone+TotalOrd,NT:Eq+Hash+Clone+TotalOrd+Primable> Grammar<T,NT> {
+
+        fn to_nt_map(&self) -> TreeMap<NT, ~[Prod<T,NT>]> {
             type Rules = ~[Prod<T,NT>];
-            type NTMap = HashMap<NT, Rules>;
-            let mut rules : NTMap = HashMap::new();
+            type NTMap = TreeMap<NT, Rules>;
+            let mut rules : NTMap = TreeMap::new();
             for p in self.productions.iter() {
-                do rules.insert_or_update_with(p.head.clone(), ~[p.clone()]) |_,v| {
-                    v.push(p.clone());
-                };
+                if match rules.find_mut(&p.head) {
+                    Some(ref mut v) => { v.push(p.clone()); false },
+                    None        => true,
+                } {
+                    rules.insert(p.head.clone(), ~[p.clone()]);
+                }
             }
             rules
         }
 
-        fn from_nt_map(start: &NT, rules: &HashMap<NT, ~[Prod<T,NT>]>) -> Grammar<T,NT> {
+        fn from_nt_map(start: &NT, rules: &TreeMap<NT, ~[Prod<T,NT>]>) -> Grammar<T,NT> {
             let mut new_prods : ~[Prod<T,NT>] = ~[];
             for (_nt, prods) in rules.iter() {
                 new_prods.push_all(*prods);
@@ -515,7 +535,7 @@ mod grammar {
 
             type Rules = ~[Prod<T,NT>];
             type Bodies = ~[PBody<T,NT>];
-            type NTMap = HashMap<NT, Rules>;
+            type NTMap = TreeMap<NT, Rules>;
 
             let mut rules : NTMap = self.to_nt_map();
             let keys : ~[NT] = rules.iter().map(|(k,_v)|k.clone()).collect();
@@ -529,9 +549,9 @@ mod grammar {
                     //   where A_j -> \delta_1 | \delta_2 | ... | \delta_k
                     //   are all the current A_j-productions;
 
-                    let deltas : Bodies = rules.get(&A_j).iter().map(|p|p.body.clone()).collect();
+                    let deltas : Bodies = rules.find(&A_j).unwrap().iter().map(|p|p.body.clone()).collect();
                     let mut new_rules : Rules = ~[];
-                    for p in rules.get(&A_i).iter() {
+                    for p in rules.find(&A_i).unwrap().iter() {
                         let body = p.body.clone();
                         if body.len() > 0 && body[0].matches_nt(&A_j) {
                             let gamma = body.slice_from(1);
@@ -545,7 +565,7 @@ mod grammar {
                     rules.insert(A_i.clone(), new_rules);
                 }
 
-                let new_rules = eliminate_immediate_left_recursion(*rules.get(&A_i));
+                let new_rules = eliminate_immediate_left_recursion(*rules.find(&A_i).unwrap());
                 rules.insert(A_i, new_rules);
             }
 
@@ -553,7 +573,7 @@ mod grammar {
         }
     }
 
-    impl<T:Clone+Eq+Ord,NT:Clone+Eq+Ord+Hash+Primable> Grammar<T,NT> {
+    impl<T:Clone+Eq+Ord+TotalOrd,NT:Clone+Eq+Ord+TotalOrd+Hash+Primable> Grammar<T,NT> {
         fn left_factor(&self) -> Grammar<T,NT> {
             use extra::sort;
 
@@ -562,7 +582,7 @@ mod grammar {
                 let keys : ~[NT] = rules.iter().map(|(k,_v)|k.clone()).collect();
                 let mut changed = false;
                 for k in keys.iter() {
-                    match left_factor_onestep(*rules.get(k)) {
+                    match left_factor_onestep(*rules.find(k).unwrap()) {
                         None => {},
                         Some(LeftFactoring{ orig: orig, fresh: fresh }) => {
                             rules.insert(orig[0].head.clone(), orig);
@@ -619,6 +639,16 @@ mod grammar {
                      ex_left_factor_2().to_str()));
         println(fmt!("left_factor_2.left_factor():\n%s\n",
                      ex_left_factor_2().left_factor().to_str()));
+    }
+
+    #[test]
+    fn exercise_4_3_1() {
+        let g = exercise_4_3_1_input();
+        println(fmt!("4_3_1:\n%s\n", g.to_str()));
+        let h = g.left_factor();
+        println(fmt!("4_3_1 left factored:\n%s\n", h.to_str()));
+        let i = h.eliminate_left_recursion();
+        println(fmt!("4_3_1 left factored, left rec elim:\n%s\n", i.to_str()));
     }
 
     #[test]
