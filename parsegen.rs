@@ -6,6 +6,7 @@
 
 extern mod extra;
 
+#[allow(unused_imports)] // work around lint bug (warns about use extra::sort)
 mod grammar {
     use std::str;
     use std::cmp;
@@ -90,7 +91,7 @@ mod grammar {
         fn gensym(&mut Registry) -> Self;
     }
 
-    #[deriving(Eq,Clone,IterBytes)]
+    #[deriving(Eq,Clone,IterBytes,Ord)]
     enum SymVariant<T> { core(T), gensym(T, uint) }
 
     struct SymbolRegistry(@mut uint);
@@ -102,6 +103,15 @@ mod grammar {
         }
     }
 
+    impl Ord for SymbolRegistry {
+        fn lt(&self, other: &SymbolRegistry) -> bool {
+            use std::ptr;
+            let s = ptr::to_unsafe_ptr(**self);
+            let t = ptr::to_unsafe_ptr(**other);
+            (s as uint) < (t as uint)
+        }
+    }
+
     fn new_symbol_registry() -> SymbolRegistry {
         SymbolRegistry(@mut 0)
     }
@@ -110,7 +120,7 @@ mod grammar {
         fn sym<T>(&self, v:T) -> Sym<T> { sym(*self, core(v)) }
     }
 
-    #[deriving(Eq)]
+    #[deriving(Eq, Ord)]
     struct Sym<T> {
         registry: SymbolRegistry,
         value: SymVariant<T>
@@ -344,6 +354,22 @@ mod grammar {
             production!( G  F -> T:"id"          ),
         ]}}
 
+    fn ex_left_factor_1() -> StaticGrammar { let G = new_symbol_registry(); Grammar {
+        start: sym(G, core("stmt")),
+        productions: ~[
+            production!( G  stmt -> T:"if" N:expr T:"then" N:stmt T:"else" N:stmt ),
+            production!( G  stmt -> T:"if" N:expr T:"then" N:stmt ),
+        ]}}
+
+    fn ex_left_factor_2() -> StaticGrammar { let G = new_symbol_registry(); Grammar {
+        start: sym(G, core("stmt")),
+        productions: ~[
+            production!( G  S -> T:"i" N:E T:"t" N:S ),
+            production!( G  S -> T:"i" N:E T:"t" N:S T:"e" N:S ),
+            production!( G  S -> T:"a" ),
+            production!( G  E -> T:"b" ),
+        ]}}
+
     fn eliminate_immediate_left_recursion<T:Clone,NT:Eq+Clone+Primable>(prods:&[Prod<T, NT>])
         -> ~[Prod<T,NT>] {
 
@@ -433,9 +459,12 @@ mod grammar {
         };
         let i0 = rules.iter();
         let mut i1 = rules.iter(); i1.next();
-        let (alt0, alt1) = do i0.zip(i1).max_by() |&(alt0, alt1)| {
+        let (alt0, alt1) = match do i0.zip(i1).max_by() |&(alt0, alt1)| {
             alt0.body.maximal_common_prefix(&alt1.body).len()
-        }.unwrap();
+        } {
+            Some(e) => e,
+            None => return None, // handle case where rules has only one element.
+        };
 
         let a = alt0.head.clone();
         let alpha = alt0.body.maximal_common_prefix(&alt1.body);
@@ -581,6 +610,18 @@ mod grammar {
     }
 
     #[test]
+    fn left_factor() {
+        println(fmt!("left_factor_1:\n%s\n",
+                     ex_left_factor_1().to_str()));
+        println(fmt!("left_factor_1.left_factor():\n%s\n",
+                     ex_left_factor_1().left_factor().to_str()));
+        println(fmt!("left_factor_2:\n%s\n",
+                     ex_left_factor_2().to_str()));
+        println(fmt!("left_factor_2.left_factor():\n%s\n",
+                     ex_left_factor_2().left_factor().to_str()));
+    }
+
+    #[test]
     fn whoa() {
         let ex4_5 = example_4_5();
         println(fmt!("%s\n", ex4_5.to_str()));
@@ -588,8 +629,8 @@ mod grammar {
         println(fmt!("%s\n", example_4_7().to_str()));
         println(fmt!("%s\n", example_4_13().to_str()));
         println(fmt!("%s\n", ex_elim_amb_1().to_str()));
-        println(fmt!("%s\n", ex_left_recur_1().to_str()));
-        println(fmt!("%s\n", ex_left_recur_2().to_str()));
+        println(fmt!("left_recur_1:\n%s\n", ex_left_recur_1().to_str()));
+        println(fmt!("left_recur_2:\n%s\n", ex_left_recur_2().to_str()));
     }
 }
 
