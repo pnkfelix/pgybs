@@ -833,6 +833,26 @@ mod grammar {
         can_terminate: bool,
     }
 
+    impl<T:ToStr+IterBytes+Eq> ToStr for FollowSet<T> {
+        fn to_str(&self) -> ~str {
+            let mut seen = false;
+            let ret = do self.right_neighbors.iter().fold(~"{") |b, a| {
+                if seen {
+                    b+", "+a.to_str()
+                } else {
+                    seen = true;
+                    b+a.to_str()
+                }
+            };
+            let ret = if self.can_terminate {
+                if seen { ret + ", $" } else { ret + "$" }
+            } else {
+                ret
+            };
+            ret + "}"
+        }
+    }
+
     impl<T:Clone+Eq+IterBytes> FollowSet<T> {
         fn just_end_marker() -> FollowSet<T> {
             FollowSet{ right_neighbors: HashSet::new(), can_terminate: true }
@@ -1172,6 +1192,34 @@ mod grammar {
         do go(~"extra (empty) case 4.5", example_4_5) |_syms| {
             PString(~[ ]) }
     }
+
+    #[test]
+    fn follow() {
+        let ~(syms, ref g) = example_4_5();
+        let ppg = PredictiveParserGen::make(g);
+        let t = syms.sym("expression");
+        // notably, "id" is not in FOLLOW(<expression>)
+        println(fmt!("ex 4.5 T: %s FOLLOW(T): %s",
+                     t.to_str(),
+                     ppg.follow(t).to_str()));
+
+        let ~(syms, ref g) = ex_elim_amb_2();
+        let ppg = PredictiveParserGen::make(g);
+        let t = syms.sym("expr");
+        // notably, "id" is not in FOLLOW(<expression>)
+        println(fmt!("ex elim amb 2 T: %s FOLLOW(T): %s",
+                     t.to_str(),
+                     ppg.follow(t).to_str())); 
+        let t = syms.sym("matched_stmt");
+        println(fmt!("ex elim amb 2 T: %s FOLLOW(T): %s",
+                     t.to_str(),
+                     ppg.follow(t).to_str()));
+        // FOLLOW(<unmatched_stmtm>) ?= { $ } ?
+        let t = syms.sym("unmatched_stmt");
+        println(fmt!("ex elim amb 2 T: %s FOLLOW(T): %s",
+                     t.to_str(),
+                     ppg.follow(t).to_str()));
+   }
 
     fn iter_to_vec<'a, X:Clone, I:Iterator<X>>(i:I) -> ~[X] {
         i.map(|x| x.clone()).collect()
