@@ -315,6 +315,7 @@ mod grammar {
     type StaticGrammar = (SymbolRegistry, Grammar<&'static str, Sym<&'static str>>);
 
     type StaticSym = ProductionSym<&'static str, Sym<&'static str>>;
+    type StaticStr = PString<&'static str, Sym<&'static str>>;
 
     impl ToGrammar<&'static str, Sym<&'static str>> for StaticGrammar {
         fn to_grammar<'a>(&'a self) -> &'a Grammar<&'static str, Sym<&'static str>> {
@@ -726,6 +727,34 @@ mod grammar {
         Many{beginnings: HashSet<T>, has_epsilon: bool}
     }
 
+    impl<T:ToStr+Eq+Hash> ToStr for FirstSet<T> {
+        fn to_str(&self) -> ~str {
+            match self {
+                &Empty   => ~"{}",
+                &Term(ref t) => ~"{" + t.to_str() + "}",
+                &Many{beginnings: ref b, has_epsilon: e} => {
+                    let mut seen = false;
+                    let ret = do b.iter().fold(~"{") |b, a| {
+                        let ret = if seen {
+                            b+", "+a.to_str()
+                        } else {
+                            b+a.to_str()
+                        };
+                        seen = true;
+                        ret
+                    };
+                    let ret = if e {
+                        let epsilon = "\u03B5";
+                        (if seen { ret + ", " } else { ret }) + epsilon
+                    } else {
+                        ret
+                    };
+                    ret + "}"
+                }
+            }
+        }
+    }
+
     impl<T:Eq+IterBytes+Clone> FirstSet<T> {
         fn contains_epsilon(&self) -> bool {
             match self {
@@ -987,11 +1016,51 @@ mod grammar {
 
     #[test]
     fn first() {
-        
-        let ~(syms, ref g) = example_4_5();
-        let ppg = PredictiveParserGen::make(g);
-        let alpha : ~[StaticSym] = ~[ NT(syms.sym("expression")) ];
-        println(fmt!("alpha: %?", alpha));
+        {
+            let ~(syms, ref g) = example_4_5();
+            let ppg = PredictiveParserGen::make(g);
+            let alpha : StaticStr = PString(~[ NT(syms.sym("expression")) ]);
+            println(fmt!("eg 4.5 alpha: %s", alpha.to_str()));
+            println(fmt!("FIRST(alpha): %s", ppg.first(alpha).to_str()));
+        }
+
+        {
+            let ~(syms, ref g) = example_4_13();
+            let ppg = PredictiveParserGen::make(g);
+            let alpha : StaticStr = PString(~[ NT(syms.sym("S")),
+                                               NT(syms.sym("S")),
+                                               T("h"),
+                                               ]);
+            println(fmt!("eg 4.13 alpha: %s", alpha.to_str()));
+            println(fmt!("FIRST(alpha): %s", ppg.first(alpha).to_str()));
+        }
+
+        {
+            let ~(syms, ref g) = exercise_4_2_1();
+            let ppg = PredictiveParserGen::make(g);
+            let alpha : StaticStr = PString(~[ NT(syms.sym("S")),
+                                               NT(syms.sym("S")),
+                                               ]);
+            println(fmt!("ex 4.2.1 alpha: %s", alpha.to_str()));
+            println(fmt!("FIRST(alpha): %s", ppg.first(alpha).to_str()));
+        }
+
+        {
+            let ~(syms, ref g) = ex_elim_amb_1();
+            let ppg = PredictiveParserGen::make(g);
+            let alpha : StaticStr = PString(~[ NT(syms.sym("stmt")),
+                                               NT(syms.sym("stmt")),
+                                               ]);
+            println(fmt!("ex 4.2.1 alpha: %s", alpha.to_str()));
+            println(fmt!("FIRST(alpha): %s", ppg.first(alpha).to_str()));
+        }
+    }
+
+    fn iter_to_vec<'a, X:Clone, I:Iterator<X>>(i:I) -> ~[X] {
+        i.map(|x| x.clone()).collect()
+    }
+    fn set_to_vec<X:Eq+Hash+Clone>(s:&HashSet<X>) -> ~[X] {
+        s.iter().map(|x| x.clone()).collect()
     }
 }
 
