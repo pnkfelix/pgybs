@@ -1,13 +1,13 @@
 all: test-serial-parsegen
 
 test-serial-%: %.bin
-	RUST_TEST_TASKS=1 ./$<
+	RUST_TEST_TASKS=1 time ./$<
 
 test-%: %.bin
-	./$<
+	time ./$<
 
 DEBUGGING=-Z debug-info
-#DEBUGGING=
+#DEBUGGING=-O
 
 %.bin: %.rs
-	rustc --cfg test $(DEBUGGING) -o $@ $<
+	time rustc --cfg test $(DEBUGGING) -o $@ $<
