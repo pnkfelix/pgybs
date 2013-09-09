@@ -530,6 +530,23 @@ mod grammar {
             Grammar { start: start.clone(), productions: new_prods }
         }
 
+        // Eliminating all (immediate and multi-step) left recursion from a
+        // grammar, for grammars with no cycles or \epsilon-productions.
+        // (Note that the resulting grammar may have \epsilon productions.)
+        //
+        // Let the nonterminals be A_1, A_2, ..., A_n
+        //
+        // for i := 1 to n do:
+        //   for j := 1 to i-1 do:
+        //     replace each production of the form A_i -> A_j \gamma
+        //       by the productions
+        //         A_i -> \delta_1 \gamma | \delta_2 \gamma | ... | \delta_k \gamma,
+        //       where A_j -> \delta_1 | \delta_2 | ... | \delta_k
+        //       are all the current A_j-productions;
+        //   end
+        //   eliminate the immediate left recursion among the A_i productions
+        // end
+
         fn eliminate_left_recursion(&self) -> Grammar<T,NT> {
             use std::vec;
 
@@ -602,20 +619,6 @@ mod grammar {
         }
     }
 
-    // Eliminating all (immediate and multi-step) left recursion from a
-    // grammar, for grammars with no cycles or \epsilon-productions.
-    // (Note that the resulting grammar may have \epsilon productions.)
-    //
-    // Let the nonterminals be A_1, A_2, ..., A_n
-    //
-    // for i := 1 to n do:
-    //   for j := 1 to i-1 do:
-    //     replace each production of the form A_i -> A_j \gamma
-    //       by the productions A_i -> \delta_1 \gamma | \delta_2 \gamma | ... | \delta_k \gamma,
-    //       where A_j -> \delta_1 | \delta_2 | ... | \delta_k are all the current A_j-productions;
-    //   end
-    //   eliminate the immediate left recursion among the A_i productions
-    // end
 
     #[test]
     fn elim_immed_left_rec() {
