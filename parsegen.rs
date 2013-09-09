@@ -1016,44 +1016,45 @@ mod grammar {
 
     #[test]
     fn first() {
-        {
-            let ~(syms, ref g) = example_4_5();
+        fn go(name: ~str,
+              maker: &fn() -> ~StaticGrammar,
+              make_alpha: &fn(&SymbolRegistry) -> StaticStr) {
+            let ~(syms, ref g) = maker();
             let ppg = PredictiveParserGen::make(g);
-            let alpha : StaticStr = PString(~[ NT(syms.sym("expression")) ]);
-            println(fmt!("eg 4.5 alpha: %s", alpha.to_str()));
+            let alpha : StaticStr = make_alpha(&syms);
+            println(fmt!("%s alpha: %s", name, alpha.to_str()));
             println(fmt!("FIRST(alpha): %s", ppg.first(alpha).to_str()));
         }
 
-        {
-            let ~(syms, ref g) = example_4_13();
-            let ppg = PredictiveParserGen::make(g);
-            let alpha : StaticStr = PString(~[ NT(syms.sym("S")),
-                                               NT(syms.sym("S")),
-                                               T("h"),
-                                               ]);
-            println(fmt!("eg 4.13 alpha: %s", alpha.to_str()));
-            println(fmt!("FIRST(alpha): %s", ppg.first(alpha).to_str()));
-        }
+        do go(~"eg 4.5", example_4_5) |syms| {
+            PString(~[ NT(syms.sym("expression")),
+                       ]) }
 
-        {
-            let ~(syms, ref g) = exercise_4_2_1();
-            let ppg = PredictiveParserGen::make(g);
-            let alpha : StaticStr = PString(~[ NT(syms.sym("S")),
-                                               NT(syms.sym("S")),
-                                               ]);
-            println(fmt!("ex 4.2.1 alpha: %s", alpha.to_str()));
-            println(fmt!("FIRST(alpha): %s", ppg.first(alpha).to_str()));
-        }
+        do go(~"eg 4.13", example_4_13) |syms| {
+            PString(~[ NT(syms.sym("S")),
+                       NT(syms.sym("S")),
+                       T("h"),
+                       ]) }
 
-        {
-            let ~(syms, ref g) = ex_elim_amb_1();
-            let ppg = PredictiveParserGen::make(g);
-            let alpha : StaticStr = PString(~[ NT(syms.sym("stmt")),
-                                               NT(syms.sym("stmt")),
-                                               ]);
-            println(fmt!("ex 4.2.1 alpha: %s", alpha.to_str()));
-            println(fmt!("FIRST(alpha): %s", ppg.first(alpha).to_str()));
-        }
+        do go(~"ex 4.2.1", exercise_4_2_1) |syms| {
+            PString(~[ NT(syms.sym("S")),
+                       NT(syms.sym("S")),
+                       ]) }
+
+        do go(~"ex 4.2.1", ex_elim_amb_1) |syms| {
+            PString(~[ NT(syms.sym("stmt")),
+                       NT(syms.sym("stmt")),
+                       ]) }
+
+        do go(~"ex elim amb 2", ex_elim_amb_2) |syms| {
+            PString(~[ NT(syms.sym("stmt")),
+                       NT(syms.sym("unmatched_stmt")),
+                       ]) }
+
+        do go(~"ex elim amb 2", ex_elim_amb_2) |syms| {
+            PString(~[ NT(syms.sym("unmatched_stmt")),
+                       NT(syms.sym("stmt")),
+                       ]) }
     }
 
     fn iter_to_vec<'a, X:Clone, I:Iterator<X>>(i:I) -> ~[X] {
