@@ -134,7 +134,11 @@ mod grammar {
     }
 
     trait ToGrammar<T, NT> {
-        fn to_grammar(&self) -> Grammar<T, NT>;
+        fn to_grammar<'a>(&'a self) -> &'a Grammar<T, NT>;
+    }
+
+    trait OwnedGrammar<T, NT> {
+        fn owned_grammar(~self) -> ~Grammar<T, NT>;
     }
 
     trait Primable {
@@ -149,6 +153,12 @@ mod grammar {
     enum SymVariant<T> { core(T), gensym(T, uint) }
 
     struct SymbolRegistry(@mut uint);
+
+    impl ToStr for SymbolRegistry {
+        fn to_str(&self) -> ~str {
+            ~"SymbolRegistry{ counter: "+(**self).to_str()+" }"
+        }
+    }
 
     impl Eq for SymbolRegistry {
         fn eq(&self, other: &SymbolRegistry) -> bool {
@@ -296,9 +306,42 @@ mod grammar {
         ( $ignored:ident T $T:expr)  => (  T($T)                             );
     )
 
-    type StaticGrammar = Grammar<&'static str, Sym<&'static str>>;
+    trait GrammarLike<T,NT> {
+        fn start(&self) -> NT;
+        fn productions<'a>(&'a self) -> &'a [Prod<T, NT>];
+        fn owned_productions(~self) -> ~[Prod<T, NT>];
+    }
 
-    fn example_4_5() -> StaticGrammar { let G = new_symbol_registry(); Grammar {
+    type StaticGrammar = (SymbolRegistry, Grammar<&'static str, Sym<&'static str>>);
+
+    type StaticSym = ProductionSym<&'static str, Sym<&'static str>>;
+
+    impl ToGrammar<&'static str, Sym<&'static str>> for StaticGrammar {
+        fn to_grammar<'a>(&'a self) -> &'a Grammar<&'static str, Sym<&'static str>> {
+            let &(_, ref g) = self; g
+        }
+    }
+
+    impl OwnedGrammar<&'static str, Sym<&'static str>> for StaticGrammar {
+        fn owned_grammar(~self) -> ~Grammar<&'static str, Sym<&'static str>> {
+            let ~(_, g) = self; ~g
+        }
+    }
+
+    impl GrammarLike<&'static str, Sym<&'static str>> for StaticGrammar {
+        fn start(&self) -> Sym<&'static str> {
+            self.to_grammar().start
+        }
+        fn productions<'a>(&'a self) -> &'a [Prod<&'static str, Sym<&'static str>>] {
+            self.to_grammar().productions.as_slice()
+        }
+        fn owned_productions(~self) -> ~[Prod<&'static str, Sym<&'static str>>] {
+            let ~(_, g) = self;
+            g.productions
+        }
+    }
+
+    fn example_4_5() -> ~StaticGrammar { let G = new_symbol_registry(); ~(G,Grammar {
         start: sym(G, core("expression")),
         productions: ~[
             production!( G expression -> N:expression T:"+" N:term ),
@@ -309,9 +352,9 @@ mod grammar {
             production!( G       term -> N:factor                  ),
             production!( G     factor -> T:"(" N:expression T:")"  ),
             production!( G     factor -> T:"id"                    ),
-        ]}}
+        ]})}
 
-    fn example_4_6() -> StaticGrammar { let G = new_symbol_registry(); Grammar {
+    fn example_4_6() -> ~StaticGrammar { let G = new_symbol_registry(); ~(G,Grammar {
         start: sym(G, core("E")),
         productions: ~[
             production!( G E -> N:E T:"+" N:T   ), // E -> E + T | E - T | T
@@ -323,9 +366,9 @@ mod grammar {
 
             production!( G F -> T:"(" N:E T:")" ), // F -> ( E ) | id
             production!( G F -> T:"id"          ),
-        ]}}
+        ]})}
 
-    fn example_4_7() -> StaticGrammar { let G = new_symbol_registry(); Grammar {
+    fn example_4_7() -> ~StaticGrammar { let G = new_symbol_registry(); ~(G,Grammar {
         start: sym(G, core("E")),
         productions: ~[
             production!( G E -> N:E T:"+" N:E   ), // E -> E + E | E * E | - E | ( E ) | id
@@ -333,39 +376,39 @@ mod grammar {
             production!( G E -> T:"-" N:E       ),
             production!( G E -> T:"(" N:E T:")" ),
             production!( G E -> T:"id"          ),
-        ]}}
+        ]})}
 
-    fn example_4_13() -> StaticGrammar { let G = new_symbol_registry(); Grammar {
+    fn example_4_13() -> ~StaticGrammar { let G = new_symbol_registry(); ~(G,Grammar {
         start: sym(G, core("S")),
         productions: ~[
             production!( G S -> T:"(" N:S T:")" ), // S -> ( S ) S | \epsilon
             production!( G S -> ),
-        ]}}
+        ]})}
 
-    fn exercise_4_2_1() -> StaticGrammar { let _ = "aa+a*";
-        let G = new_symbol_registry(); Grammar {
+    fn exercise_4_2_1() -> ~StaticGrammar { let _ = "aa+a*";
+        let G = new_symbol_registry(); ~(G,Grammar {
         start: sym(G, core("S")),
         productions: ~[
             production!( G S -> N:S N:S T:"+" ), // S -> S S + | S S * | a
             production!( G S -> N:S N:S T:"*" ),
             production!( G S -> T:"a"         ),
-        ]}}
+        ]})}
 
     fn exercise_4_2_2_help(input: &'static str,
                            n: SymbolRegistry,
-                           prods: ~[Prod<&'static str, Sym<&'static str>>]) -> StaticGrammar {
+                           prods: ~[Prod<&'static str, Sym<&'static str>>]) -> ~StaticGrammar {
         let _ = input;
-        Grammar{ start: sym(n, core("S")), productions: prods }
+        ~(n,Grammar{ start: sym(n, core("S")), productions: prods })
     }
 
-    fn exercise_4_2_2_a() -> StaticGrammar {
+    fn exercise_4_2_2_a() -> ~StaticGrammar {
         let G = new_symbol_registry();
         exercise_4_2_2_help("000111", G, ~[
             production!( G S -> T:"0" N:S T:"1" ), // S -> 0 S 1 | 0 1
             production!( G S -> T:"0" T:"1"     ),
         ])}
 
-    fn exercise_4_2_2_b() -> StaticGrammar {
+    fn exercise_4_2_2_b() -> ~StaticGrammar {
         let G = new_symbol_registry();
         exercise_4_2_2_help("+*aaa", G, ~[
             production!( G S -> T:"+" N:S N:S ), // S -> + S S | * S S | a
@@ -373,22 +416,22 @@ mod grammar {
             production!( G S -> T:"a"         ),
         ])}
 
-    fn exercise_4_2_2_c() -> StaticGrammar {
+    fn exercise_4_2_2_c() -> ~StaticGrammar {
         let G = new_symbol_registry();
         exercise_4_2_2_help("(()())", G, ~[
             production!( G S -> N:S T:"(" N:S T:")" N:S ), // S -> S ( S ) S | \epsilon
             production!( G S ->                         ),
         ])}
 
-    fn ex_elim_amb_1() -> StaticGrammar { let G = new_symbol_registry(); Grammar {
+    fn ex_elim_amb_1() -> ~StaticGrammar { let G = new_symbol_registry(); ~(G,Grammar {
         start: sym(G, core("stmt")),
         productions: ~[
             production!( G stmt -> T:"if" N:expr T:"then" N:stmt                 ),
             production!( G stmt -> T:"if" N:expr T:"then" N:stmt T:"else" N:stmt ),
             production!( G stmt -> T:"other"                                     ),
-        ]}}
+        ]})}
 
-    fn ex_elim_amb_2() -> StaticGrammar { let G = new_symbol_registry(); Grammar {
+    fn ex_elim_amb_2() -> ~StaticGrammar { let G = new_symbol_registry(); ~(G,Grammar {
         start: sym(G, core("stmt")),
         productions: ~[
             production!( G stmt           -> N:matched_stmt                          ),
@@ -400,9 +443,9 @@ mod grammar {
             production!( G unmatched_stmt -> T:"if" N:expr T:"then" N:stmt           ),
             production!( G unmatched_stmt -> T:"if" N:expr T:"then" N:matched_stmt
                                                            T:"else" N:unmatched_stmt ),
-       ]}}
+       ]})}
 
-    fn ex_left_recur_1() -> StaticGrammar { let G = new_symbol_registry(); Grammar {
+    fn ex_left_recur_1() -> ~StaticGrammar { let G = new_symbol_registry(); ~(G,Grammar {
         start: sym(G, core("E")),
         productions: ~[
             production!( G E -> N:E T:"T" N:T   ),
@@ -411,9 +454,9 @@ mod grammar {
             production!( G T -> N:F             ),
             production!( G F -> T:"(" N:E T:")" ),
             production!( G F -> T:"id"          ),
-        ]}}
+        ]})}
 
-    fn ex_left_recur_2() -> StaticGrammar { let G = new_symbol_registry(); Grammar {
+    fn ex_left_recur_2() -> ~StaticGrammar { let G = new_symbol_registry(); ~(G,Grammar {
         start: sym(G, core("E")),
         productions: ~[
             production!( G  E -> N:T N:E2        ),
@@ -423,26 +466,26 @@ mod grammar {
             production!( G T2 ->                 ),
             production!( G  F -> T:"(" N:E T:")" ),
             production!( G  F -> T:"id"          ),
-        ]}}
+        ]})}
 
-    fn ex_left_factor_1() -> StaticGrammar { let G = new_symbol_registry(); Grammar {
+    fn ex_left_factor_1() -> ~StaticGrammar { let G = new_symbol_registry(); ~(G,Grammar {
         start: sym(G, core("stmt")),
         productions: ~[
             production!( G  stmt -> T:"if" N:expr T:"then" N:stmt T:"else" N:stmt ),
             production!( G  stmt -> T:"if" N:expr T:"then" N:stmt ),
-        ]}}
+        ]})}
 
-    fn ex_left_factor_2() -> StaticGrammar { let G = new_symbol_registry(); Grammar {
+    fn ex_left_factor_2() -> ~StaticGrammar { let G = new_symbol_registry(); ~(G,Grammar {
         start: sym(G, core("stmt")),
         productions: ~[
             production!( G  S -> T:"i" N:E T:"t" N:S ),
             production!( G  S -> T:"i" N:E T:"t" N:S T:"e" N:S ),
             production!( G  S -> T:"a" ),
             production!( G  E -> T:"b" ),
-        ]}}
+        ]})}
 
-    fn exercise_4_3_1_input() -> StaticGrammar {
-        let G = new_symbol_registry(); Grammar {
+    fn exercise_4_3_1_input() -> ~StaticGrammar {
+        let G = new_symbol_registry(); ~(G,Grammar {
             start: sym(G, core("rexpr")),
             productions: ~[
                 production!( G    rexpr -> N:rexpr T:"+" N:rterm ),
@@ -453,7 +496,7 @@ mod grammar {
                 production!( G  rfactor -> N:rprimary            ),
                 production!( G rprimary -> T:"a"                 ),
                 production!( G rprimary -> T:"b"                 ),
-        ]}
+        ]})
     }
 
     fn eliminate_immediate_left_recursion<T:Clone,NT:Eq+Clone+Primable>(prods:&[Prod<T, NT>])
@@ -672,8 +715,8 @@ mod grammar {
         }
     }
 
-    struct PredictiveParserGen<T,NT> {
-        grammar: Grammar<T,NT>,
+    struct PredictiveParserGen<'self, T,NT> {
+        grammar: &'self Grammar<T,NT>,
         precomputed_firsts: HashMap<NT, FirstSet<T>>,
     }
 
@@ -760,8 +803,8 @@ mod grammar {
         can_terminate: bool,
     }
 
-    impl<T:Clone+Eq+IterBytes,NT:Clone+Eq+IterBytes> PredictiveParserGen<T,NT> {
-        fn make(grammar: Grammar<T,NT>) -> PredictiveParserGen<T,NT> {
+    impl<'self, T:Clone+Eq+IterBytes,NT:Clone+Eq+IterBytes> PredictiveParserGen<'self, T,NT> {
+        fn make<'a>(grammar: &'a Grammar<T,NT>) -> PredictiveParserGen<'a, T,NT> {
             let mut first : HashMap<NT, FirstSet<T>> = HashMap::new();
 
             for p in grammar.productions_iter() {
@@ -898,13 +941,13 @@ mod grammar {
 
     #[test]
     fn elim_immed_left_rec() {
-        let g = eliminate_immediate_left_recursion(ex_elim_amb_1().productions);
+        let g = eliminate_immediate_left_recursion(ex_elim_amb_1().owned_productions());
         println(fmt!("%s\n", g.to_str()));
     }
 
     #[test]
     fn elim_left_rec() {
-        let g = ex_left_recur_1().eliminate_left_recursion();
+        let g = ex_left_recur_1().owned_grammar().eliminate_left_recursion();
         println(fmt!("%s\n", g.to_str()));
     }
 
@@ -913,18 +956,18 @@ mod grammar {
         println(fmt!("left_factor_1:\n%s\n",
                      ex_left_factor_1().to_str()));
         println(fmt!("left_factor_1.left_factor():\n%s\n",
-                     ex_left_factor_1().left_factor().to_str()));
+                     ex_left_factor_1().owned_grammar().left_factor().to_str()));
         println(fmt!("left_factor_2:\n%s\n",
                      ex_left_factor_2().to_str()));
         println(fmt!("left_factor_2.left_factor():\n%s\n",
-                     ex_left_factor_2().left_factor().to_str()));
+                     ex_left_factor_2().owned_grammar().left_factor().to_str()));
     }
 
     #[test]
     fn exercise_4_3_1() {
         let g = exercise_4_3_1_input();
         println(fmt!("4_3_1:\n%s\n", g.to_str()));
-        let h = g.left_factor();
+        let h = g.to_grammar().left_factor();
         println(fmt!("4_3_1 left factored:\n%s\n", h.to_str()));
         let i = h.eliminate_left_recursion();
         println(fmt!("4_3_1 left factored, left rec elim:\n%s\n", i.to_str()));
@@ -940,6 +983,15 @@ mod grammar {
         println(fmt!("%s\n", ex_elim_amb_1().to_str()));
         println(fmt!("left_recur_1:\n%s\n", ex_left_recur_1().to_str()));
         println(fmt!("left_recur_2:\n%s\n", ex_left_recur_2().to_str()));
+    }
+
+    #[test]
+    fn first() {
+        
+        let ~(syms, ref g) = example_4_5();
+        let ppg = PredictiveParserGen::make(g);
+        let alpha : ~[StaticSym] = ~[ NT(syms.sym("expression")) ];
+        println(fmt!("alpha: %?", alpha));
     }
 }
 
