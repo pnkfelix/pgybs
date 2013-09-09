@@ -10,15 +10,16 @@ extern mod extra;
 mod grammar {
     use std::str;
     use std::cmp;
-    // use std::hashmap::HashMap;
+    use std::hashmap::HashMap;
     use extra::treemap::TreeMap;
     use std::to_bytes;
-
+    use std::hashmap::HashSet;
+    use std::vec;
 
     trait Terminal { }
     trait NonTerminal { }
 
-    #[deriving(Clone,Eq)]
+    #[deriving(Clone,Eq,IterBytes)]
     enum ProductionSym<T,NT> { T(T), NT(NT) }
 
     impl<T,NT:Eq> ProductionSym<T,NT> {
@@ -78,6 +79,58 @@ mod grammar {
     struct Grammar<T, NT> {
         start: NT,
         productions: ~[Prod<T, NT>],
+    }
+
+    struct ProductionIterator<'self,T,NT>(vec::VecIterator<'self,Prod<T,NT>>);
+
+    struct TerminalSet<T>(HashSet<T>);
+    struct NonterminalSet<NT>(HashSet<NT>);
+    struct SymbolSet<T,NT>(HashSet<ProductionSym<T,NT>>);
+
+    impl<T:Clone+IterBytes+Eq,NT:Clone+IterBytes+Eq> Grammar<T,NT> {
+        fn terminals(&self) -> TerminalSet<T> {
+            let mut accum = HashSet::new();
+            do self.for_each_sym |s| {
+                match s {
+                    &T(ref t) => { accum.insert(t.clone()); },
+                    &NT(_) => {}
+                }
+            }
+            TerminalSet(accum)
+        }
+
+        fn non_terminals(&self) -> NonterminalSet<NT> {
+            let mut accum = HashSet::new();
+            do self.for_each_sym |s| {
+                match s {
+                    &T(_) => {}
+                    &NT(ref nt) => { accum.insert(nt.clone()); },
+                }
+            }
+            NonterminalSet(accum)
+        }
+
+        fn symbols(&self) -> SymbolSet<T,NT> {
+            let mut accum = HashSet::new();
+            do self.for_each_sym |s| {
+                accum.insert(s.clone());
+            }
+            SymbolSet(accum)
+        }
+
+        fn for_each_sym(&self, f: &fn (&ProductionSym<T,NT>) -> ()) {
+            f(&NT(self.start.clone()));
+            for p in self.productions_iter() {
+                f(&NT(p.head.clone()));
+                for s in p.body.iter() {
+                    f(s);
+                }
+            }
+        }
+
+        fn productions_iter<'a>(&'a self) -> ProductionIterator<'a, T,NT> {
+            ProductionIterator(self.productions.iter())
+        }
     }
 
     trait ToGrammar<T, NT> {
@@ -619,6 +672,229 @@ mod grammar {
         }
     }
 
+    struct PredictiveParserGen<T,NT> {
+        grammar: Grammar<T,NT>,
+        precomputed_firsts: HashMap<NT, FirstSet<T>>,
+    }
+
+    enum FirstSet<T> {
+        Empty,
+        Term(T),
+        Many{beginnings: HashSet<T>, has_epsilon: bool}
+    }
+
+    impl<T:Eq+IterBytes+Clone> FirstSet<T> {
+        fn contains_epsilon(&self) -> bool {
+            match self {
+                &Empty => false,
+                &Term(*) => false,
+                &Many{ beginnings: _, has_epsilon: b } => b,
+            }
+        }
+
+        fn termless_many(has_epsilon: bool) -> ~FirstSet<T> {
+            ~Many{ beginnings: HashSet::new(), has_epsilon: has_epsilon }
+        }
+
+        fn singleton_many(t: T, has_epsilon: bool) -> ~FirstSet<T> {
+            let mut s = HashSet::new();
+            s.insert(t);
+            ~Many{ beginnings: s, has_epsilon: has_epsilon }
+        }
+
+        fn add_epsilon(~self) -> ~FirstSet<T> {
+            match self {
+                ~Empty   => FirstSet::termless_many(true),
+                ~Term(t) => FirstSet::singleton_many(t, true),
+                ~Many{ beginnings: b, has_epsilon: _ } => {
+                    ~Many{ beginnings: b, has_epsilon: true }
+                }
+            }
+        }
+
+        fn union(~self, other: &FirstSet<T>) -> ~FirstSet<T> {
+            let mut recv = match self {
+                ~Empty   => FirstSet::termless_many(false),
+                ~Term(t) => FirstSet::singleton_many(t, false),
+                ~Many{ beginnings: _, has_epsilon: _ } => self
+            };
+            match recv {
+                ~Empty | ~Term(*) => fail!("cannot happen now"),
+                ~Many{ beginnings: ref mut b, has_epsilon: ref mut e } => {
+                    match other {
+                        &Empty => {},
+                        &Term(ref t) => { b.insert(t.clone()); },
+                        &Many{ beginnings: ref c, has_epsilon: ref f } => {
+                            for s in c.iter() {
+                                b.insert(s.clone());
+                            }
+                            *e |= *f;
+                        }
+                    }
+                }
+            }
+            recv
+        }
+    }
+
+    impl<T:IterBytes+Eq> FirstSet<T> {
+        fn for_each(&self, f: &fn (&T) -> ()) {
+            match self {
+                &Empty => {},
+                &Term(ref t) => f(t),
+                &Many{ beginnings: ref b, has_epsilon: _ } => {
+                    b.iter().all(|x| { f(x); true });
+                },
+            }
+        }
+        fn has_epsilon(&self) -> bool {
+            match self {
+                &Empty | &Term(*) => false,
+                &Many{ beginnings: _, has_epsilon: he } => he,
+            }
+        }
+    }
+
+    struct FollowSet<T> {
+        right_neighbors: ~[T],
+        can_terminate: bool,
+    }
+
+    impl<T:Clone+Eq+IterBytes,NT:Clone+Eq+IterBytes> PredictiveParserGen<T,NT> {
+        fn make(grammar: Grammar<T,NT>) -> PredictiveParserGen<T,NT> {
+            let mut first : HashMap<NT, FirstSet<T>> = HashMap::new();
+
+            for p in grammar.productions_iter() {
+                if p.body.len() == 0 {
+                    first.insert(p.head.clone(),
+                                 Many{ beginnings: HashSet::new(),
+                                       has_epsilon: true });
+                }
+            }
+
+            loop {
+                let mut any_changed = false;
+
+                for p in grammar.productions_iter() {
+                    let mut to_add : HashSet<T> = HashSet::new();
+                    let mut all_had_epsilon = true;
+                    let update = |first_set:&FirstSet<T>| -> bool {
+                        do first_set.for_each |s| {
+                            to_add.insert(s.clone());
+                        }
+                        if !first_set.has_epsilon() {
+                            all_had_epsilon = false;
+                            true
+                        } else {
+                            false
+                        }
+                    };
+                    for s in p.body.iter() {
+                        match s {
+                            &T(ref t) => {
+                                let first_set = Term(t.clone());
+                                if update(&first_set) {
+                                    break;
+                                }
+                            },
+
+                            &NT(ref nt) => {
+                                match first.find(nt) {
+                                    None => {
+                                        all_had_epsilon = false;
+                                        break;
+                                    }, // wait until entry is filled later.
+                                    Some(first_set) => {
+                                        if update(first_set) {
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        };
+                    }
+
+                    let fresh_entry = |_:&NT, to_add| {
+                        any_changed = true;
+                        Many{ beginnings: to_add, has_epsilon: all_had_epsilon, }
+                    };
+                    let update_entry = |_:&NT, prior: &mut FirstSet<T>, to_add:HashSet<T>| {
+                        let action = match prior {
+                            &Empty => {
+                                Some(Many{ beginnings: to_add, has_epsilon: all_had_epsilon })
+                            }
+                            &Term(ref t) => {
+                                let mut to_add = to_add.clone();
+                                to_add.insert(t.clone());
+                                Some(Many{ beginnings: to_add.clone(), has_epsilon: all_had_epsilon })
+                            },
+                            &Many{beginnings: ref mut begin_recv, has_epsilon: ref mut eps_recv} => {
+                                for t in to_add.iter() {
+                                    if begin_recv.insert(t.clone()) {
+                                        any_changed = true;
+                                    }
+                                }
+                                if !*eps_recv && all_had_epsilon {
+                                    *eps_recv = true;
+                                    any_changed = true;
+                                }
+                                None
+                            }
+                        };
+                        match action {
+                            Some(p) => *prior = p,
+                            None => {}
+                        }
+                    };
+                    first.mangle(p.head.clone(), to_add, fresh_entry, update_entry);
+                }
+
+                if !any_changed {
+                    break;
+                }
+            }
+
+            PredictiveParserGen{
+                grammar: grammar,
+                precomputed_firsts: first,
+            }
+        }
+        fn first_for_term(&self, t: T) -> FirstSet<T> {
+            Term(t)
+        }
+        fn first_for_nonterm<'a>(&'a self, nt: &NT) -> &'a FirstSet<T> {
+            self.precomputed_firsts.get(nt)
+        }
+
+        fn first(&self, alpha: PString<T,NT>) -> FirstSet<T> {
+            let mut accum = ~Empty;
+            let mut all_contain_epsilon = true;
+            for s in alpha.iter() {
+                match s {
+                    &T(ref t) => {
+                        accum = accum.union(&self.first_for_term(t.clone()));
+                        all_contain_epsilon = false;
+                        break;
+                    },
+                    &NT(ref nt) => {
+                        let f = self.first_for_nonterm(nt);
+                        accum = accum.union(f);
+                        if !f.contains_epsilon() {
+                            all_contain_epsilon = false;
+                            break;
+                        }
+                    }
+                }
+            }
+            if all_contain_epsilon {
+                accum = accum.add_epsilon();
+            }
+            *accum
+        }
+        fn follow(&self, _A: NT) -> FollowSet<T> {
+            fail!("unimplemnted");
+        }
+    }
 
     #[test]
     fn elim_immed_left_rec() {
