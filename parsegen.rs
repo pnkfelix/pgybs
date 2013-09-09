@@ -719,6 +719,7 @@ mod grammar {
     struct PredictiveParserGen<'self, T,NT> {
         grammar: &'self Grammar<T,NT>,
         precomputed_firsts: HashMap<NT, FirstSet<T>>,
+        precomputed_follows: HashMap<NT, FollowSet<T>>,
     }
 
     enum FirstSet<T> {
@@ -810,7 +811,7 @@ mod grammar {
     }
 
     impl<T:IterBytes+Eq> FirstSet<T> {
-        fn for_each(&self, f: &fn (&T) -> ()) {
+        fn for_each_term(&self, f: &fn (&T) -> ()) {
             match self {
                 &Empty => {},
                 &Term(ref t) => f(t),
@@ -828,8 +829,14 @@ mod grammar {
     }
 
     struct FollowSet<T> {
-        right_neighbors: ~[T],
+        right_neighbors: HashSet<T>,
         can_terminate: bool,
+    }
+
+    impl<T:Clone+Eq+IterBytes> FollowSet<T> {
+        fn just_end_marker() -> FollowSet<T> {
+            FollowSet{ right_neighbors: HashSet::new(), can_terminate: true }
+        }
     }
 
     impl<'self, T:Clone+Eq+IterBytes,NT:Clone+Eq+IterBytes> PredictiveParserGen<'self, T,NT> {
@@ -851,7 +858,7 @@ mod grammar {
                     let mut to_add : HashSet<T> = HashSet::new();
                     let mut all_had_epsilon = true;
                     let update = |first_set:&FirstSet<T>| -> bool {
-                        do first_set.for_each |s| {
+                        do first_set.for_each_term |s| {
                             to_add.insert(s.clone());
                         }
                         if !first_set.has_epsilon() {
@@ -926,9 +933,114 @@ mod grammar {
                 }
             }
 
-            PredictiveParserGen{
+            let prefollows = PredictiveParserGen {
                 grammar: grammar,
                 precomputed_firsts: first,
+                precomputed_follows: HashMap::new(),
+            };
+
+            let mut follows : HashMap<NT, FollowSet<T>> = HashMap::new();
+            follows.insert(grammar.start.clone(), FollowSet::just_end_marker());
+            loop {
+                let mut any_change = false;
+
+                // Production A -> α B β
+                // implies FOLLOW(B) := FOLLOW(B) U (FIRST(β) \ {ε})
+                //
+                // Production A -> α B or A -> α B β where ε in FIRST(β)
+                // imples FOLLOW(B) := FOLLOW(B) U FOLLOW(A)
+
+                for p in grammar.productions_iter() {
+
+                    for i in range(0, p.body.len()) {
+
+                        let fresh_from_first = |_:&NT, first_beta:&FirstSet<T>| {
+                            any_change = true;
+                            let mut s = HashSet::new();
+                            do first_beta.for_each_term |t| {
+                                s.insert(t.clone());
+                            }
+                            FollowSet{ right_neighbors: s,
+                                       can_terminate: false }
+                        };
+                        let update_from_first =
+                            |_:&NT, prior: &mut FollowSet<T>, first_beta:&FirstSet<T>| {
+                            do first_beta.for_each_term |t| {
+                                if prior.right_neighbors.insert(t.clone()) {
+                                    any_change = true;
+                                }
+                            }
+                        };
+
+                        let fresh_from_follow = |_:&NT, follow_A:&FollowSet<T>| {
+                            any_change = true;
+                            FollowSet {
+                                right_neighbors: follow_A.right_neighbors.clone(),
+                                can_terminate: follow_A.can_terminate
+                            }
+                        };
+
+                        let update_from_follow =
+                            |_:&NT, prior: &mut FollowSet<T>, follow_A:&FollowSet<T>| {
+                            for r in follow_A.right_neighbors.iter() {
+                                if prior.right_neighbors.insert(r.clone()) {
+                                    any_change = true;
+                                }
+                            }
+                            if !prior.can_terminate && follow_A.can_terminate {
+                                any_change = true;
+                                prior.can_terminate = true;
+                            }
+                        };
+
+                        match p.body[i] {
+                            T(*) => {},
+                            NT(ref B) => {
+                                let beta = p.body.slice(i+1, p.body.len());
+                                let first_beta = prefollows.first(beta);
+
+                                let act =
+                                    if first_beta.contains_epsilon() {
+                                    let A = p.head.clone();
+                                    match follows.find(&A) {
+                                        None => None, // wait until we find it later
+                                        Some(ref f) => Some(FollowSet{
+                                                right_neighbors: f.right_neighbors.clone(),
+                                                can_terminate: f.can_terminate,
+                                            })
+                                    }
+                                } else {
+                                    None
+                                };
+
+                                follows.mangle(B.clone(),
+                                               &first_beta,
+                                               fresh_from_first,
+                                               update_from_first);
+
+                                match act {
+                                    None => {},
+                                    Some(ref f) => {
+                                        follows.mangle(B.clone(),
+                                                       f,
+                                                       fresh_from_follow,
+                                                       update_from_follow);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if !any_change {
+                    break;
+                }
+            }
+
+            PredictiveParserGen{
+                grammar: grammar,
+                precomputed_firsts: prefollows.precomputed_firsts,
+                precomputed_follows: follows,
             }
         }
         fn first_for_term(&self, t: T) -> FirstSet<T> {
@@ -938,7 +1050,7 @@ mod grammar {
             self.precomputed_firsts.get(nt)
         }
 
-        fn first(&self, alpha: PString<T,NT>) -> FirstSet<T> {
+        fn first(&self, alpha: &[ProductionSym<T,NT>]) -> FirstSet<T> {
             let mut accum = ~Empty;
             let mut all_contain_epsilon = true;
             for s in alpha.iter() {
@@ -958,13 +1070,14 @@ mod grammar {
                     }
                 }
             }
+            // N.B. If alpha is empty, we get right answer here (inherently).
             if all_contain_epsilon {
                 accum = accum.add_epsilon();
             }
             *accum
         }
-        fn follow(&self, _A: NT) -> FollowSet<T> {
-            fail!("unimplemnted");
+        fn follow<'a>(&'a self, A: NT) -> &'a FollowSet<T> {
+            self.precomputed_follows.get(&A)
         }
     }
 
@@ -1023,7 +1136,7 @@ mod grammar {
             let ppg = PredictiveParserGen::make(g);
             let alpha : StaticStr = make_alpha(&syms);
             println(fmt!("%s alpha: %s", name, alpha.to_str()));
-            println(fmt!("FIRST(alpha): %s", ppg.first(alpha).to_str()));
+            println(fmt!("FIRST(alpha): %s", ppg.first(*alpha).to_str()));
         }
 
         do go(~"eg 4.5", example_4_5) |syms| {
@@ -1055,6 +1168,9 @@ mod grammar {
             PString(~[ NT(syms.sym("unmatched_stmt")),
                        NT(syms.sym("stmt")),
                        ]) }
+
+        do go(~"extra (empty) case 4.5", example_4_5) |_syms| {
+            PString(~[ ]) }
     }
 
     fn iter_to_vec<'a, X:Clone, I:Iterator<X>>(i:I) -> ~[X] {
