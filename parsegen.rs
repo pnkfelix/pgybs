@@ -64,16 +64,16 @@ mod grammar {
     }
 
     #[deriving(Clone)]
-    struct PBody<T, NT>(~[ProductionSym<T, NT>]);
+    struct PString<T, NT>(~[ProductionSym<T, NT>]);
 
-    impl<T:Eq+Clone,NT:Eq+Clone> PBody<T,NT> {
-        fn maximal_common_prefix(&self, other: &PBody<T,NT>) -> ~[ProductionSym<T,NT>] {
+    impl<T:Eq+Clone,NT:Eq+Clone> PString<T,NT> {
+        fn maximal_common_prefix(&self, other: &PString<T,NT>) -> ~[ProductionSym<T,NT>] {
             maximal_common_prefix(**self, **other)
         }
     }
 
     #[deriving(Clone)]
-    struct Prod<T, NT> { head: NT, body: PBody<T, NT> }
+    struct Prod<T, NT> { head: NT, body: PString<T, NT> }
 
     struct Grammar<T, NT> {
         start: NT,
@@ -223,7 +223,7 @@ mod grammar {
     }
 
     fn production<T,NT>(h:NT, b: ~[ProductionSym<T,NT>]) -> Prod<T,NT> {
-        Prod { head:h, body:PBody(b) }
+        Prod { head:h, body:PString(b) }
     }
 
     // The $G argument is the SymbolRegistry.  (Originally I used a
@@ -534,7 +534,7 @@ mod grammar {
             use std::vec;
 
             type Rules = ~[Prod<T,NT>];
-            type Bodies = ~[PBody<T,NT>];
+            type Bodies = ~[PString<T,NT>];
             type NTMap = TreeMap<NT, Rules>;
 
             let mut rules : NTMap = self.to_nt_map();
