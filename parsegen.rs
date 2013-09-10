@@ -15,6 +15,7 @@ mod grammar {
     use std::to_bytes;
     use std::hashmap::HashSet;
     use std::vec;
+    use std::condition;
 
     trait Terminal { }
     trait NonTerminal { }
@@ -722,6 +723,11 @@ mod grammar {
         precomputed_follows: HashMap<NT, FollowSet<T>>,
     }
 
+    struct PredictiveParsingTable<T,NT> {
+        nt_to_t_prod: HashMap<NT, HashMap<T, Prod<T, NT>>>,
+        nt_to_end_prod: HashMap<NT, Prod<T, NT>>,
+    }
+
     enum FirstSet<T> {
         Empty,
         Term(T),
@@ -860,6 +866,47 @@ mod grammar {
     }
 
     impl<'self, T:Clone+Eq+IterBytes,NT:Clone+Eq+IterBytes> PredictiveParserGen<'self, T,NT> {
+        fn make_parsing_table(&self) -> PredictiveParsingTable<T,NT> {
+            type Rule = Prod<T,NT>;
+            type Entry = HashSet<T, Rule>;
+            let mut table = HashMap::new();
+            let mut end_table = HashMap::new();
+            fn fresh_entry(nt: &NT, t_prod: (&T, &Rule)) -> Entry {
+                fail!("unimplemented");
+            }
+            fn update_entry<'a>(nt: &NT, prior: &'a mut Entry, t_prod: (&T, &Rule))
+                -> &'a mut Entry {
+                fail!("unimplemented");
+            }
+            fn fresh_end_entry(nt: &NT, prod: &Rule) -> Entry {
+                fail!("unimplemented");
+            }
+            fn update_end_entry<'a>(nt: &NT, prior: &'a mut Entry, prod: &Rule)
+                -> &'a mut Entry {
+                fail!("unimplemented");
+            }
+            for p in grammar.productions_iter() {
+                let A = p.head;
+                let first = self.first([NT(A)]);
+                do first.for_each_term |a| {
+                    table.mangle(A, (&a, &p), fresh_entry, update_entry);
+                }
+                if first.has_epsilon() {
+                    let follow = self.follow(A);
+                    for b in follow.right_neighbors.iter() {
+                        table.mangle(A, (&b, &p), fresh_entry, update_entry);
+                    }
+                    if follow.can_terminate {
+                        end_table.mangle(A, &p, fresh_end_entry, update_end_entry);
+                    }
+                }
+            }
+            PredictiveParsingTable {
+                nt_to_t_prod: table,
+                nt_to_end_prod: end_table,
+            }
+        }
+
         fn make<'a>(grammar: &'a Grammar<T,NT>) -> PredictiveParserGen<'a, T,NT> {
             let mut first : HashMap<NT, FirstSet<T>> = HashMap::new();
 
