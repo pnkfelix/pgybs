@@ -15,7 +15,6 @@ mod grammar {
     use std::to_bytes;
     use std::hashmap::HashSet;
     use std::vec;
-    use std::condition;
 
     trait Terminal { }
     trait NonTerminal { }
@@ -723,9 +722,12 @@ mod grammar {
         precomputed_follows: HashMap<NT, FollowSet<T>>,
     }
 
+    type MidEntry<T,NT> = HashMap<T, Prod<T, NT>>;
+    type EndEntry<T,NT> = Prod<T, NT>;
+
     struct PredictiveParsingTable<T,NT> {
-        nt_to_t_prod: HashMap<NT, HashMap<T, Prod<T, NT>>>,
-        nt_to_end_prod: HashMap<NT, Prod<T, NT>>,
+        nt_to_mid_prod: HashMap<NT, MidEntry<T,NT>>,
+        nt_to_end_prod: HashMap<NT, EndEntry<T,NT>>,
     }
 
     enum FirstSet<T> {
@@ -865,44 +867,60 @@ mod grammar {
         }
     }
 
-    impl<'self, T:Clone+Eq+IterBytes,NT:Clone+Eq+IterBytes> PredictiveParserGen<'self, T,NT> {
+    fn new_mid_entry<T,NT>(nt: &NT, t_prod: (&T, &Prod<T,NT>)) -> MidEntry<T,NT> {
+        fail!("unimplemented");
+    }
+
+    fn mod_mid_entry<'a,T,NT>(nt: &NT,
+                        prior: &'a mut MidEntry<T,NT>,
+                        t_prod: (&T, &Prod<T,NT>)) {
+        fail!("unimplemented");
+    }
+
+    fn new_end_entry<T,NT>(nt: &NT, prod: &Prod<T,NT>) -> EndEntry<T,NT> {
+        fail!("unimplemented");
+    }
+
+    fn mod_end_entry<'a,T,NT>(nt: &NT,
+                            prior: &'a mut EndEntry<T,NT>,
+                            prod: &Prod<T,NT>) {
+        fail!("unimplemented");
+    }
+
+
+    impl<'self, T:Clone+Eq+IterBytes, NT:Clone+Eq+IterBytes>
+        PredictiveParserGen<'self, T,NT>
+    {
         fn make_parsing_table(&self) -> PredictiveParsingTable<T,NT> {
             type Rule = Prod<T,NT>;
-            type Entry = HashSet<T, Rule>;
             let mut table = HashMap::new();
             let mut end_table = HashMap::new();
-            fn fresh_entry(nt: &NT, t_prod: (&T, &Rule)) -> Entry {
-                fail!("unimplemented");
-            }
-            fn update_entry<'a>(nt: &NT, prior: &'a mut Entry, t_prod: (&T, &Rule))
-                -> &'a mut Entry {
-                fail!("unimplemented");
-            }
-            fn fresh_end_entry(nt: &NT, prod: &Rule) -> Entry {
-                fail!("unimplemented");
-            }
-            fn update_end_entry<'a>(nt: &NT, prior: &'a mut Entry, prod: &Rule)
-                -> &'a mut Entry {
-                fail!("unimplemented");
-            }
-            for p in grammar.productions_iter() {
-                let A = p.head;
-                let first = self.first([NT(A)]);
+
+            let (nm,mm) = (new_mid_entry::<T,NT>, mod_mid_entry::<T,NT>);
+            let (ne,me) = (new_end_entry::<T,NT>, mod_end_entry::<T,NT>);
+
+            for p in self.grammar.productions_iter() {
+                let A : NT = p.head.clone();
+                let newA = || A.clone();
+                let alpha : [ProductionSym<T,NT>, ..1] = [NT(newA())];
+                let first = self.first(alpha);
                 do first.for_each_term |a| {
-                    table.mangle(A, (&a, &p), fresh_entry, update_entry);
+                    let accum : (&T, &Prod<T,NT>) = (a, p);
+                    table.mangle(newA(), accum, nm, mm);
                 }
                 if first.has_epsilon() {
                     let follow = self.follow(A);
                     for b in follow.right_neighbors.iter() {
-                        table.mangle(A, (&b, &p), fresh_entry, update_entry);
+                        table.mangle(newA(), (b, p), nm, mm);
                     }
                     if follow.can_terminate {
-                        end_table.mangle(A, &p, fresh_end_entry, update_end_entry);
+                        end_table.mangle(newA(), p, ne, me);
                     }
                 }
             }
+
             PredictiveParsingTable {
-                nt_to_t_prod: table,
+                nt_to_mid_prod: table,
                 nt_to_end_prod: end_table,
             }
         }
