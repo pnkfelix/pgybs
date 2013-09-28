@@ -281,7 +281,7 @@ mod grammar {
     impl<T:ToStr,NT:ToStr> ToStr for Grammar<T,NT> {
         fn to_str(&self) -> ~str {
             let w = self.productions.iter().map(|x|x.head.to_str().char_len()).fold(0u, cmp::max);
-            self.productions.map(|x|x.to_str_head_aligned(w)).connect("\n")
+            "Grammar ⟨ "+self.productions.map(|x|x.to_str_head_aligned(w)).connect("\n") + " ⟩"
         }
     }
 
@@ -1227,8 +1227,4 @@ mod grammar {
     fn set_to_vec<X:Eq+Hash+Clone>(s:&HashSet<X>) -> ~[X] {
         s.iter().map(|x| x.clone()).collect()
     }
-}
-
-fn main() {
-    println("Hello World");
 }
