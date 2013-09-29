@@ -914,6 +914,7 @@ mod grammar {
                 let l = nt.to_str().len();
                 if l > row_header_width { row_header_width = l; }
             }
+            let row_header_width = row_header_width;
 
             let mut s = " ".repeat(row_header_width) + " |";
             for i in range(0, terms.len()) {
@@ -942,10 +943,22 @@ mod grammar {
                 let right = " ".repeat(right as uint);
                 s = s + "|| " + left + " " + t + " " + right  + " ";
             }
-            let row_width = s.len();
-            s = s + "\n";
-            s = s + "=".repeat(row_width) + "\n";
 
+            let _row_width = s.len();
+            s = s + "\n";
+
+            let row_div = |line:&str, brk1: &str, brk2: &str| -> ~str {
+                let mut s = ~"";
+                s = s + line.repeat(row_header_width) + line + brk1;
+                for w in range(0, width_map.len()) {
+                    s = s + if w+1 < width_map.len() { brk1 } else { brk2 };
+                    s = s + line.repeat(width_map[w] as uint + 4);
+                }
+                s = s + "\n";
+                s
+            };
+
+            s = s + row_div("=", "|", "||");
             for nt in nonterms.iter() {
                 let mut entries : ~[~[Prod<T,NT>]] = ~[];
 
@@ -1039,7 +1052,7 @@ mod grammar {
                     s = s + "\n";
                 }
 
-                s = s + "-".repeat(row_width) + "\n";
+                s = s + row_div("-", "+", "++");
             }
 
             s
