@@ -482,7 +482,7 @@ mod grammar {
         ]})}
 
     fn ex_left_factor_2() -> ~StaticGrammar { let G = new_symbol_registry(); ~(G,Grammar {
-        start: sym(G, core("stmt")),
+        start: sym(G, core("S")),
         productions: ~[
             production!( G  S -> T:"i" N:E T:"t" N:S ),
             production!( G  S -> T:"i" N:E T:"t" N:S T:"e" N:S ),
@@ -1203,6 +1203,13 @@ mod grammar {
         }
     }
 
+    fn opt_to_str<T:ToStr>(x: Option<&T>) -> ~str {
+        match x {
+            None => ~"None",
+            Some(x) => format!("Some({:s})", x.to_str()),
+        }
+    }
+
     impl<'self, T:Terminal+ToStr, NT:NonTerminal+ToStr>
         PredictiveParserGen<'self, T,NT>
     {
@@ -1349,16 +1356,18 @@ mod grammar {
 
             let mut follows : HashMap<NT, FollowSet<T>> = HashMap::new();
             follows.insert(grammar.start.clone(), FollowSet::just_end_marker());
+            let mut iter_count = 0u;
             loop {
                 let mut any_change = false;
+                iter_count = iter_count + 1;
 
-                let fresh_from_first = |_:&NT, first_beta:&FirstSet<T>| {
+                let copy_first = |_:&NT, first_beta:&FirstSet<T>| {
                     any_change = true;
                     let mut s = HashSet::new();
                     do first_beta.for_each_term |t| { s.insert(t.clone()); }
                     FollowSet{ right_neighbors: s, can_terminate: false }
                 };
-                let update_from_first =
+                let add_all_first =
                     |_:&NT, prior: &mut FollowSet<T>, first_beta:&FirstSet<T>| {
                     do first_beta.for_each_term |t| {
                         if prior.right_neighbors.insert(t.clone()) {
@@ -1366,13 +1375,12 @@ mod grammar {
                         }
                     }
                 };
-
-                let fresh_from_follow = |_:&NT, follow_A:&FollowSet<T>| {
+                let copy_follow = |_:&NT, follow_A:&FollowSet<T>| {
                     any_change = true;
                     follow_A.clone()
                 };
 
-                let update_from_follow =
+                let add_all_follow =
                     |_:&NT, prior: &mut FollowSet<T>, follow_A:&FollowSet<T>| {
                     for r in follow_A.right_neighbors.iter() {
                         if prior.right_neighbors.insert(r.clone()) {
@@ -1411,19 +1419,18 @@ mod grammar {
                                 } else {
                                     None
                                 };
-
                                 follows.mangle(B.clone(),
                                                &first_beta,
-                                               |a,b|fresh_from_first(a,b),
-                                               |a,b,c|update_from_first(a,b,c));
+                                               |nt,fi| copy_first(nt,fi),
+                                               |nt,p,fi| add_all_first(nt,p,fi));
 
                                 match act {
                                     None => {},
                                     Some(ref f) => {
                                         follows.mangle(B.clone(),
                                                        f,
-                                                       |a,b|fresh_from_follow(a,b),
-                                                       |a,b,c|update_from_follow(a,b,c));
+                                                       |nt,fo| copy_follow(nt,fo),
+                                                       |nt,p,fo| add_all_follow(nt,p,fo));
                                     }
                                 }
                             }
