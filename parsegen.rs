@@ -23,7 +23,7 @@ mod grammar {
     impl NonTerminal for &'static str { }
 
     #[deriving(Clone,Eq,IterBytes)]
-    enum ProductionSym<T,NT> { T(T), NT(NT) }
+    pub enum ProductionSym<T,NT> { T(T), NT(NT) }
 
     impl<T,NT:Eq> ProductionSym<T,NT> {
         fn matches_nt(&self, other:&NT) -> bool {
@@ -153,7 +153,7 @@ mod grammar {
     }
 
     #[deriving(Eq,Clone,IterBytes,Ord,TotalOrd,TotalEq)]
-    enum SymVariant<T> { core(T), gensym(T, uint) }
+    pub enum SymVariant<T> { core(T), gensym(T, uint) }
 
     struct SymbolRegistry(@mut uint);
 
@@ -195,7 +195,7 @@ mod grammar {
         }
     }
 
-    fn new_symbol_registry() -> SymbolRegistry {
+    pub fn new_symbol_registry() -> SymbolRegistry {
         SymbolRegistry(@mut 0)
     }
 
@@ -218,7 +218,7 @@ mod grammar {
         }
     }
 
-    fn sym<T>(registry: SymbolRegistry, value: SymVariant<T>) -> Sym<T> {
+    pub fn sym<T>(registry: SymbolRegistry, value: SymVariant<T>) -> Sym<T> {
         Sym{ registry: registry, value: value }
     }
 
@@ -286,11 +286,11 @@ mod grammar {
     impl<T:ToStr,NT:ToStr> ToStr for Grammar<T,NT> {
         fn to_str(&self) -> ~str {
             let w = self.productions.iter().map(|x|x.head.to_str().char_len()).fold(0u, cmp::max);
-            "Grammar ⟨ "+self.productions.map(|x|x.to_str_head_aligned(w)).connect("\n") + " ⟩"
+            "Grammar ⟨\n  "+self.productions.map(|x|x.to_str_head_aligned(w)).connect("\n  ") + "\n⟩"
         }
     }
 
-    fn production<T,NT>(h:NT, b: ~[ProductionSym<T,NT>]) -> Prod<T,NT> {
+    pub fn production<T,NT>(h:NT, b: ~[ProductionSym<T,NT>]) -> Prod<T,NT> {
         Prod { head:h, body:PString(b) }
     }
 
@@ -317,7 +317,7 @@ mod grammar {
         fn owned_productions(~self) -> ~[Prod<T, NT>];
     }
 
-    type StaticGrammar = (SymbolRegistry, Grammar<&'static str, Sym<&'static str>>);
+    pub type StaticGrammar = (SymbolRegistry, Grammar<&'static str, Sym<&'static str>>);
 
     type StaticSym = ProductionSym<&'static str, Sym<&'static str>>;
     type StaticStr = PString<&'static str, Sym<&'static str>>;
@@ -503,6 +503,23 @@ mod grammar {
                 production!( G rprimary -> T:"a"                 ),
                 production!( G rprimary -> T:"b"                 ),
         ]})
+    }
+
+    mod dragon86 {
+        use super::*;
+        pub fn example_4_17() -> ~StaticGrammar { let G = new_symbol_registry(); ~(G,Grammar {
+                 start: sym(G, core("E")),
+                 productions: ~[
+                     production!( G E  -> N:T N:E_        ), // E  -> T E'
+                     production!( G E_ -> T:"+" N:T N:E_  ), // E' -> + T E' | \epsilon
+                     production!( G E_ ->                 ),
+                     production!( G T  -> N:F N:T_        ), // T  -> F T'
+                     production!( G T_ -> T:"*" N:F N:T_  ), // T' -> * F T' | \epsilon
+                     production!( G T_ ->                 ),
+                     production!( G F  -> T:"(" N:E T:")" ), // F  -> ( E ) | id
+                     production!( G F  -> T:"id"          ),
+                 ]})
+        }
     }
 
     fn eliminate_immediate_left_recursion<T:Clone,NT:Eq+Clone+Primable>(prods:&[Prod<T, NT>])
@@ -763,14 +780,20 @@ mod grammar {
         }
     }
 
-    impl <T,NT:IterBytes+Eq> EndTable<T,NT> {
+    impl <T:Terminal,NT:NonTerminal> EndTable<T,NT> {
         fn new() -> EndTable<T,NT> { EndTable { map: HashMap::new() } }
 
         fn insert(&mut self, nt: NT, prod: Prod<T,NT>) {
-            self.map.mangle(nt,
-                            &prod, 
-                            new_end_entry::<T,NT>,
-                            mod_end_entry::<T,NT>);
+            fn new<T:Terminal, NT:NonTerminal>(_: &NT, p: &Prod<T,NT>) -> EndEntry<T,NT> {
+                let mut s = HashSet::new();
+                s.insert(p.clone());
+                s
+            }
+            fn add<T:Terminal, NT:NonTerminal>(_: &NT, prior: &mut EndEntry<T,NT>, p: &Prod<T,NT>) {
+                prior.insert(p.clone());
+            }
+
+            self.map.mangle(nt, &prod, new::<T,NT>, add::<T,NT>);
         }
         fn entries(&self, _nt: NT, _visit: &fn (&Prod<T,NT>)) {
             fail!("EndTable entries unimplemented");
@@ -835,6 +858,7 @@ mod grammar {
         for PredictiveParsingTable<T,NT> {
 
         fn to_str(&self) -> ~str {
+            use extra::sort::quick_sort;
 
             // For proper formatting, we need to know the maximum
             // width of all productions in a column (as well as the
@@ -844,8 +868,23 @@ mod grammar {
             let mut width_map : ~[int] = ~[];
 
             // Copy terms and nonterms into vectors to keep stable order
-            let terms : ~[T] = self.terms.iter().map(|x|x.clone()).collect();
-            let nonterms : ~[NT] = self.nonterms.iter().map(|x|x.clone()).collect();
+
+            fn iter_clone_to_vec<T:Clone,I:Iterator<T>>(i: I) -> ~[T] {
+                i.map(|x|x.clone()).collect()
+            }
+            // why doesn't this work same as below?
+            // let terms : ~[T] = iter_clone_to_vec(self.terms.iter());
+            let mut terms : ~[T] = self.terms.iter().map(|x|x.clone()).collect();
+
+            let mut nonterms : ~[NT] = self.nonterms.iter().map(|x|x.clone()).collect();
+
+            do quick_sort(terms) |a,b| { a.to_str() <= b.to_str() }
+            do quick_sort(nonterms) |a,b| { a.to_str() <= b.to_str() }
+
+            let terms = terms;
+            let nonterms = nonterms;
+            println!("terms: {:?}\n", terms);
+            println!("nonterms: {:?}\n", nonterms);
 
             for t in terms.iter() {
                 let mut max_width = t.to_str().len() as int;
@@ -874,7 +913,7 @@ mod grammar {
                 let remainder = len - (t.len() as int);
                 let left = remainder / 2;
                 let right = remainder - left;
-                if left < 0 || right < 0 { fail!("negative pad value(s)."); }
+                if remainder < 0 || left < 0 || right < 0 { fail!("negative pad value(s)."); }
 
                 let left = " ".repeat(left as uint);
                 let right = " ".repeat(right as uint);
@@ -886,25 +925,32 @@ mod grammar {
 
             for nt in nonterms.iter() {
                 let mut entries : ~[~[Prod<T,NT>]] = ~[];
-                let mut max_len = 0;
+
+                let mut max_len = 1; // always print a row, even if no entries.
+
                 for t in terms.iter() {
                     let mut prods : ~[Prod<T,NT>] = ~[];
                     let key = (nt.clone(), t.clone());
                     do self.each_prod(&key) |p| { prods.push(p.clone()); }
                     if prods.len() > max_len {
-                        max_len = entries.len();
+                        max_len = prods.len();
                     }
                     entries.push(prods);
                 }
 
-                let nt = nt.to_str();
-                assert!(nt.len() <= row_header_width);
-                { let remainder = row_header_width - nt.len();
-                  let left = " ".repeat(remainder);
-                  s = s + left + nt + " |";
-                }
+                let max_len = max_len;
 
                 for i in range(0, max_len) {
+                    if i == 0 {
+                        let nt = nt.to_str();
+                        assert!(nt.len() <= row_header_width);
+                        let remainder = row_header_width - nt.len();
+                        let left = " ".repeat(remainder);
+                        s = s + left + nt + " |";
+                    } else {
+                        s = s + " ".repeat(row_header_width) + " |";
+                    }
+
                     for j in range(0, terms.len()) {
                         let len = width_map[j];
 
@@ -919,12 +965,13 @@ mod grammar {
                                 println!("remainder: {} left: {} right: {}",
                                          remainder, left, right);
                             }
+                            if remainder < 0 || left < 0 || right < 0 { fail!("negative pad value(s)."); }
                             assert!(left >= 0);
                             assert!(right >= 0);
-                            if left < 0 || right < 0 { fail!("negative pad value(s)."); }
-                            let left = " ".repeat(left as uint);
-                            let right = " ".repeat(right as uint);
-                            s = s + "| " + left + " " + p + " " + right + " ";
+                            let remainder = " ".repeat(remainder as uint);
+                            let _left = " ".repeat(left as uint);
+                            let _right = " ".repeat(right as uint);
+                            s = s + "|  " + p + " " + remainder + " ";
                         } else {
                             assert!(len >= 0);
                             let fill = " ".repeat(len as uint);
@@ -933,6 +980,8 @@ mod grammar {
                     }
                     s = s + "\n";
                 }
+
+                s = s + "-".repeat(row_width) + "\n";
             }
 
             s
@@ -1075,17 +1124,6 @@ mod grammar {
             FollowSet{ right_neighbors: HashSet::new(), can_terminate: true }
         }
     }
-
-    fn new_end_entry<T,NT>(_nt: &NT, _prod: &Prod<T,NT>) -> EndEntry<T,NT> {
-        fail!("unimplemented");
-    }
-
-    fn mod_end_entry<'a,T,NT>(_nt: &NT,
-                              _prior: &'a mut EndEntry<T,NT>,
-                              _prod: &Prod<T,NT>) {
-        fail!("unimplemented");
-    }
-
 
     impl<'self, T:Terminal, NT:NonTerminal>
         PredictiveParserGen<'self, T,NT>
@@ -1490,10 +1528,23 @@ mod grammar {
 
     #[test]
     fn test_make_table() {
+        let process = |g| {
+            let ppg = PredictiveParserGen::make(g);
+            let table = ppg.make_parsing_table();
+            println(fmt!("grammar: %s, parsing_table: \n%s", g.to_str(), table.to_str()));
+        };
         let ~(_syms, ref g) = example_4_5();
-        let ppg = PredictiveParserGen::make(g);
-        let table = ppg.make_parsing_table();
-        println(fmt!("grammar: %s, parsing_table: \n%s", g.to_str(), table.to_str()));
+        process(g);
+
+        let ~(_syms, ref g) = dragon86::example_4_17();
+        process(g);
+
+        let ~(_syms, ref g) = ex_left_factor_2();
+        process(g);
+
+        let ~(_syms, ref g) = ex_left_factor_2();
+        let ref g = g.left_factor();
+        process(g);
     }
 
     fn iter_to_vec<'a, X:Clone, I:Iterator<X>>(i:I) -> ~[X] {
