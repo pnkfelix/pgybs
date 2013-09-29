@@ -1170,6 +1170,13 @@ mod grammar {
         can_terminate: bool,
     }
 
+    impl<T:Hash+Eq+Clone> Clone for FollowSet<T> {
+        fn clone(&self) -> FollowSet<T> {
+            FollowSet{ right_neighbors: self.right_neighbors.clone(),
+                       can_terminate: self.can_terminate }
+        }
+    }
+
     impl<T:ToStr+IterBytes+Eq> ToStr for FollowSet<T> {
         fn to_str(&self) -> ~str {
             let mut seen = false;
@@ -1196,7 +1203,7 @@ mod grammar {
         }
     }
 
-    impl<'self, T:Terminal, NT:NonTerminal>
+    impl<'self, T:Terminal+ToStr, NT:NonTerminal+ToStr>
         PredictiveParserGen<'self, T,NT>
     {
         fn make_parsing_table(&self) -> PredictiveParsingTable<T,NT> {
@@ -1207,17 +1214,22 @@ mod grammar {
             let mut nonterms  = HashSet::new();
 
             for p in self.grammar.productions_iter() {
+                println!("prod: {:s}", p.to_str());
                 let A : NT = p.head.clone();
                 let newA = || A.clone();
                 nonterms.insert(newA());
-                let alpha : [ProductionSym<T,NT>, ..1] = [NT(newA())];
-                let first = self.first(alpha);
+                let ref alpha = *p.body;
+                let first = self.first(*alpha);
+                println!("FIRST({:s}): {:s}", A.to_str(), first.to_str());
                 do first.for_each_term |a| {
                     terms.insert(a.clone());
+                    println!("  a in FIRST(A) where a = `{:s}`, A = {:s} => M[{1:s},{0:s}] gets {:s}",
+                             a.to_str(), A.to_str(), p.to_str());
                     mid_table.insert(newA(), a.clone(), p.clone());
                 }
                 if first.has_epsilon() {
-                    let follow = self.follow(A);
+                    let follow = self.follow(&A);
+                    println!("FOLLOW({:s}): {:s}", A.to_str(), follow.to_str());
                     for b in follow.right_neighbors.iter() {
                         terms.insert(b.clone());
                         mid_table.insert(newA(), b.clone(), p.clone());
@@ -1340,54 +1352,48 @@ mod grammar {
             loop {
                 let mut any_change = false;
 
-                // Production A -> α B β
-                // implies FOLLOW(B) := FOLLOW(B) U (FIRST(β) \ {ε})
-                //
-                // Production A -> α B or A -> α B β where ε in FIRST(β)
-                // imples FOLLOW(B) := FOLLOW(B) U FOLLOW(A)
-
                 for p in grammar.productions_iter() {
 
-                    for i in range(0, p.body.len()) {
-
-                        let fresh_from_first = |_:&NT, first_beta:&FirstSet<T>| {
-                            any_change = true;
-                            let mut s = HashSet::new();
-                            do first_beta.for_each_term |t| {
-                                s.insert(t.clone());
-                            }
-                            FollowSet{ right_neighbors: s,
-                                       can_terminate: false }
-                        };
-                        let update_from_first =
-                            |_:&NT, prior: &mut FollowSet<T>, first_beta:&FirstSet<T>| {
-                            do first_beta.for_each_term |t| {
-                                if prior.right_neighbors.insert(t.clone()) {
-                                    any_change = true;
-                                }
-                            }
-                        };
-
-                        let fresh_from_follow = |_:&NT, follow_A:&FollowSet<T>| {
-                            any_change = true;
-                            FollowSet {
-                                right_neighbors: follow_A.right_neighbors.clone(),
-                                can_terminate: follow_A.can_terminate
-                            }
-                        };
-
-                        let update_from_follow =
-                            |_:&NT, prior: &mut FollowSet<T>, follow_A:&FollowSet<T>| {
-                            for r in follow_A.right_neighbors.iter() {
-                                if prior.right_neighbors.insert(r.clone()) {
-                                    any_change = true;
-                                }
-                            }
-                            if !prior.can_terminate && follow_A.can_terminate {
+                    let fresh_from_first = |_:&NT, first_beta:&FirstSet<T>| {
+                        any_change = true;
+                        let mut s = HashSet::new();
+                        do first_beta.for_each_term |t| { s.insert(t.clone()); }
+                        FollowSet{ right_neighbors: s, can_terminate: false }
+                    };
+                    let update_from_first =
+                        |_:&NT, prior: &mut FollowSet<T>, first_beta:&FirstSet<T>| {
+                        do first_beta.for_each_term |t| {
+                            if prior.right_neighbors.insert(t.clone()) {
                                 any_change = true;
-                                prior.can_terminate = true;
                             }
-                        };
+                        }
+                    };
+
+                    let fresh_from_follow = |_:&NT, follow_A:&FollowSet<T>| {
+                        any_change = true;
+                        follow_A.clone()
+                    };
+
+                    let update_from_follow =
+                        |_:&NT, prior: &mut FollowSet<T>, follow_A:&FollowSet<T>| {
+                        for r in follow_A.right_neighbors.iter() {
+                            if prior.right_neighbors.insert(r.clone()) {
+                                any_change = true;
+                            }
+                        }
+                        if !prior.can_terminate && follow_A.can_terminate {
+                            any_change = true;
+                            prior.can_terminate = true;
+                        }
+                    };
+
+                    // Production A -> α B β
+                    // implies FOLLOW(B) := FOLLOW(B) U (FIRST(β) \ {ε})
+                    //
+                    // Production A -> α B or A -> α B β where ε in FIRST(β)
+                    // imples FOLLOW(B) := FOLLOW(B) U FOLLOW(A)
+
+                    for i in range(0, p.body.len()) {
 
                         match p.body[i] {
                             T(*) => {},
@@ -1397,13 +1403,10 @@ mod grammar {
 
                                 let act =
                                     if first_beta.contains_epsilon() {
-                                    let A = p.head.clone();
-                                    match follows.find(&A) {
-                                        None => None, // wait until we find it later
-                                        Some(ref f) => Some(FollowSet{
-                                                right_neighbors: f.right_neighbors.clone(),
-                                                can_terminate: f.can_terminate,
-                                            })
+                                    let ref A = p.head;
+                                    match follows.find(A) {
+                                        None => None,
+                                        Some(f) => Some(f.clone())
                                     }
                                 } else {
                                     None
@@ -1411,16 +1414,16 @@ mod grammar {
 
                                 follows.mangle(B.clone(),
                                                &first_beta,
-                                               fresh_from_first,
-                                               update_from_first);
+                                               |a,b|fresh_from_first(a,b),
+                                               |a,b,c|update_from_first(a,b,c));
 
                                 match act {
                                     None => {},
                                     Some(ref f) => {
                                         follows.mangle(B.clone(),
                                                        f,
-                                                       fresh_from_follow,
-                                                       update_from_follow);
+                                                       |a,b|fresh_from_follow(a,b),
+                                                       |a,b,c|update_from_follow(a,b,c));
                                     }
                                 }
                             }
@@ -1472,8 +1475,8 @@ mod grammar {
             }
             *accum
         }
-        fn follow<'a>(&'a self, A: NT) -> &'a FollowSet<T> {
-            self.precomputed_follows.get(&A)
+        fn follow<'a>(&'a self, A: &NT) -> &'a FollowSet<T> {
+            self.precomputed_follows.get(A)
         }
     }
 
@@ -1577,7 +1580,7 @@ mod grammar {
         // notably, "id" is not in FOLLOW(<expression>)
         println(fmt!("ex 4.5 T: %s FOLLOW(T): %s",
                      t.to_str(),
-                     ppg.follow(t).to_str()));
+                     ppg.follow(&t).to_str()));
 
         let ~(syms, ref g) = ex_elim_amb_2();
         let ppg = PredictiveParserGen::make(g);
@@ -1585,16 +1588,16 @@ mod grammar {
         // notably, "id" is not in FOLLOW(<expression>)
         println(fmt!("ex elim amb 2 T: %s FOLLOW(T): %s",
                      t.to_str(),
-                     ppg.follow(t).to_str())); 
+                     ppg.follow(&t).to_str())); 
         let t = syms.sym("matched_stmt");
         println(fmt!("ex elim amb 2 T: %s FOLLOW(T): %s",
                      t.to_str(),
-                     ppg.follow(t).to_str()));
+                     ppg.follow(&t).to_str()));
         // FOLLOW(<unmatched_stmtm>) ?= { $ } ?
         let t = syms.sym("unmatched_stmt");
         println(fmt!("ex elim amb 2 T: %s FOLLOW(T): %s",
                      t.to_str(),
-                     ppg.follow(t).to_str()));
+                     ppg.follow(&t).to_str()));
     }
 
     #[test]
