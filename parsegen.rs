@@ -16,8 +16,11 @@ mod grammar {
     use std::hashmap::HashSet;
     use std::vec;
 
-    trait Terminal { }
-    trait NonTerminal { }
+    trait Terminal : IterBytes+Eq+Clone { }
+    trait NonTerminal : IterBytes+Eq+Clone { }
+
+    impl Terminal for &'static str { }
+    impl NonTerminal for &'static str { }
 
     #[deriving(Clone,Eq,IterBytes)]
     enum ProductionSym<T,NT> { T(T), NT(NT) }
@@ -64,7 +67,7 @@ mod grammar {
         }
     }
 
-    #[deriving(Clone)]
+    #[deriving(Clone,IterBytes,Eq)]
     struct PString<T, NT>(~[ProductionSym<T, NT>]);
 
     impl<T:Eq+Clone,NT:Eq+Clone> PString<T,NT> {
@@ -73,7 +76,7 @@ mod grammar {
         }
     }
 
-    #[deriving(Clone)]
+    #[deriving(Clone,IterBytes,Eq)]
     struct Prod<T, NT> { head: NT, body: PString<T, NT> }
 
     struct Grammar<T, NT> {
@@ -128,7 +131,7 @@ mod grammar {
             }
         }
 
-        fn productions_iter<'a>(&'a self) -> ProductionIterator<'a, T,NT> {
+        fn productions_iter<'a>(&'a self) -> ProductionIterator<'a, T, NT> {
             ProductionIterator(self.productions.iter())
         }
     }
@@ -205,6 +208,8 @@ mod grammar {
         registry: SymbolRegistry,
         value: SymVariant<T>
     }
+
+    impl<T:IterBytes+Eq+Clone> NonTerminal for Sym<T> { }
 
     impl<T:IterBytes> IterBytes for Sym<T> {
         // (don't include the registry in the hash)
@@ -722,12 +727,216 @@ mod grammar {
         precomputed_follows: HashMap<NT, FollowSet<T>>,
     }
 
-    type MidEntry<T,NT> = HashMap<T, Prod<T, NT>>;
-    type EndEntry<T,NT> = Prod<T, NT>;
+    type MidEntry<T,NT> = HashSet<Prod<T, NT>>;
+    type EndEntry<T,NT> = HashSet<Prod<T, NT>>;
+
+    struct MidTable<T,NT> {
+        map: HashMap<(NT,T), MidEntry<T,NT>>
+    }
+    struct EndTable<T,NT> {
+        map: HashMap<NT, EndEntry<T,NT>>
+    }
+
+    impl<T:Terminal,NT:NonTerminal> MidTable<T,NT> {
+        fn new() -> MidTable<T,NT> { MidTable { map: HashMap::new() } }
+
+        fn insert(&mut self, nt: NT, t: T, p: Prod<T,NT>) {
+            fn new<T:Terminal, NT:NonTerminal>(_: &(NT,T), p: Prod<T,NT>)
+                                               -> MidEntry<T,NT>
+            {
+                let mut s = HashSet::new();
+                s.insert(p.clone());
+                s
+            }
+
+            fn add<'a, T:Terminal,NT:NonTerminal>(_: &(NT,T),
+                                                  prior: &'a mut MidEntry<T,NT>,
+                                                  p: Prod<T,NT>)
+            {
+                prior.insert(p);
+            }
+
+            self.map.mangle((nt, t), p, new::<T,NT>, add::<T,NT>);
+        }
+        fn entries(&self, _nt: NT, _input: T, _visit: &fn (&Prod<T,NT>)) {
+            fail!("MidTable entries unimplemented");
+        }
+    }
+
+    impl <T,NT:IterBytes+Eq> EndTable<T,NT> {
+        fn new() -> EndTable<T,NT> { EndTable { map: HashMap::new() } }
+
+        fn insert(&mut self, nt: NT, prod: Prod<T,NT>) {
+            self.map.mangle(nt,
+                            &prod, 
+                            new_end_entry::<T,NT>,
+                            mod_end_entry::<T,NT>);
+        }
+        fn entries(&self, _nt: NT, _visit: &fn (&Prod<T,NT>)) {
+            fail!("EndTable entries unimplemented");
+        }
+    }
 
     struct PredictiveParsingTable<T,NT> {
-        nt_to_mid_prod: HashMap<NT, MidEntry<T,NT>>,
-        nt_to_end_prod: HashMap<NT, EndEntry<T,NT>>,
+        terms: HashSet<T>,
+        nonterms: HashSet<NT>,
+        mid: MidTable<T,NT>,
+        end: EndTable<T,NT>,
+    }
+
+    enum Cell<'self, T,NT> {
+        MidCell(&'self T, &'self NT, &'self Prod<T,NT>),
+        EndCell(&'self NT, &'self Prod<T,NT>),
+    }
+
+    impl<T:Terminal,NT:NonTerminal> PredictiveParsingTable<T,NT> {
+        fn each_term(&self, visit: &fn(&T)) {
+            for t in self.terms.iter() { visit(t); }
+        }
+        fn each_nonterm(&self, visit: &fn(&NT)) {
+            for nt in self.nonterms.iter() { visit(nt); }
+        }
+        fn each_prod(&self, key: &(NT, T), visit: &fn(&Prod<T,NT>)) {
+            match self.mid.map.find(key) {
+                None => {},
+                Some(s) => { for p in s.iter() { visit(p); } }
+            }
+        }
+        fn each_end_prod(&self, key: &NT, visit: &fn(&Prod<T,NT>)) {
+            match self.end.map.find(key) {
+                None => {},
+                Some(s) => { for p in s.iter() { visit(p); } }
+            }
+        }
+
+        fn each_cell(&self, visit: &fn(&Cell<T,NT>)) {
+            do self.each_term |t| {
+                do self.each_nonterm |nt| {
+                    let key = (nt.clone(), t.clone());
+                    do self.each_prod(&key) |p| {
+                        let c = MidCell(t, nt, p);
+                        visit(&c);
+                    }
+                }
+            }
+            do self.each_nonterm |nt| {
+                do self.each_end_prod(nt) |p| {
+                    let c = EndCell(nt, p);
+                    visit(&c);
+                }
+            }
+        }
+    }
+
+    // A parsing table has its rows labelled by non-terminals and its
+    // columns labelled by terminals.
+
+    impl<T:Terminal+ToStr,NT:NonTerminal+ToStr> ToStr
+        for PredictiveParsingTable<T,NT> {
+
+        fn to_str(&self) -> ~str {
+
+            // For proper formatting, we need to know the maximum
+            // width of all productions in a column (as well as the
+            // length of the string for the token itself labelling the
+            // column).
+
+            let mut width_map : ~[int] = ~[];
+
+            // Copy terms and nonterms into vectors to keep stable order
+            let terms : ~[T] = self.terms.iter().map(|x|x.clone()).collect();
+            let nonterms : ~[NT] = self.nonterms.iter().map(|x|x.clone()).collect();
+
+            for t in terms.iter() {
+                let mut max_width = t.to_str().len() as int;
+                for nt in nonterms.iter() {
+                    let key = (nt.clone(), t.clone());
+                    do self.each_prod(&key) |p| {
+                        let l = p.to_str().len() as int;
+                        if l > max_width { max_width = l }
+                    }
+                }
+                width_map.push(max_width);
+            }
+
+            let mut row_header_width = 0;
+            for nt in nonterms.iter() {
+                let l = nt.to_str().len();
+                if l > row_header_width { row_header_width = l; }
+            }
+
+            let mut s = " ".repeat(row_header_width) + " |";
+            let mut row_width = 0;
+            for i in range(0, terms.len()) {
+                let ref t = terms[i];
+                let len = width_map[i];
+                let t = t.to_str();
+                let remainder = len - (t.len() as int);
+                let left = remainder / 2;
+                let right = remainder - left;
+                if left < 0 || right < 0 { fail!("negative pad value(s)."); }
+
+                let left = " ".repeat(left as uint);
+                let right = " ".repeat(right as uint);
+                s = s + "| " + left + "`" + t + "`" + right  + " ";
+                row_width = s.len();
+            }
+            s = s + "\n";
+            s = s + "=".repeat(row_width) + "\n";
+
+            for nt in nonterms.iter() {
+                let mut entries : ~[~[Prod<T,NT>]] = ~[];
+                let mut max_len = 0;
+                for t in terms.iter() {
+                    let mut prods : ~[Prod<T,NT>] = ~[];
+                    let key = (nt.clone(), t.clone());
+                    do self.each_prod(&key) |p| { prods.push(p.clone()); }
+                    if prods.len() > max_len {
+                        max_len = entries.len();
+                    }
+                    entries.push(prods);
+                }
+
+                let nt = nt.to_str();
+                assert!(nt.len() <= row_header_width);
+                { let remainder = row_header_width - nt.len();
+                  let left = " ".repeat(remainder);
+                  s = s + left + nt + " |";
+                }
+
+                for i in range(0, max_len) {
+                    for j in range(0, terms.len()) {
+                        let len = width_map[j];
+
+                        if i < entries[j].len() {
+                            let p = entries[j][i].to_str();
+                            let remainder = len - (p.len() as int);
+                            let left = remainder / 2;
+                            let right = remainder - left;
+                            if left < 0 || right < 0 {
+                                println!("width_map: {:?}", width_map);
+                                println!("prod: {}", p);
+                                println!("remainder: {} left: {} right: {}",
+                                         remainder, left, right);
+                            }
+                            assert!(left >= 0);
+                            assert!(right >= 0);
+                            if left < 0 || right < 0 { fail!("negative pad value(s)."); }
+                            let left = " ".repeat(left as uint);
+                            let right = " ".repeat(right as uint);
+                            s = s + "| " + left + " " + p + " " + right + " ";
+                        } else {
+                            assert!(len >= 0);
+                            let fill = " ".repeat(len as uint);
+                            s = s + "|  " + fill + "  ";
+                        }
+                    }
+                    s = s + "\n";
+                }
+            }
+
+            s
+        }
     }
 
     enum FirstSet<T> {
@@ -867,61 +1076,54 @@ mod grammar {
         }
     }
 
-    fn new_mid_entry<T,NT>(nt: &NT, t_prod: (&T, &Prod<T,NT>)) -> MidEntry<T,NT> {
+    fn new_end_entry<T,NT>(_nt: &NT, _prod: &Prod<T,NT>) -> EndEntry<T,NT> {
         fail!("unimplemented");
     }
 
-    fn mod_mid_entry<'a,T,NT>(nt: &NT,
-                        prior: &'a mut MidEntry<T,NT>,
-                        t_prod: (&T, &Prod<T,NT>)) {
-        fail!("unimplemented");
-    }
-
-    fn new_end_entry<T,NT>(nt: &NT, prod: &Prod<T,NT>) -> EndEntry<T,NT> {
-        fail!("unimplemented");
-    }
-
-    fn mod_end_entry<'a,T,NT>(nt: &NT,
-                            prior: &'a mut EndEntry<T,NT>,
-                            prod: &Prod<T,NT>) {
+    fn mod_end_entry<'a,T,NT>(_nt: &NT,
+                              _prior: &'a mut EndEntry<T,NT>,
+                              _prod: &Prod<T,NT>) {
         fail!("unimplemented");
     }
 
 
-    impl<'self, T:Clone+Eq+IterBytes, NT:Clone+Eq+IterBytes>
+    impl<'self, T:Terminal, NT:NonTerminal>
         PredictiveParserGen<'self, T,NT>
     {
         fn make_parsing_table(&self) -> PredictiveParsingTable<T,NT> {
             type Rule = Prod<T,NT>;
-            let mut table = HashMap::new();
-            let mut end_table = HashMap::new();
-
-            let (nm,mm) = (new_mid_entry::<T,NT>, mod_mid_entry::<T,NT>);
-            let (ne,me) = (new_end_entry::<T,NT>, mod_end_entry::<T,NT>);
+            let mut mid_table = MidTable::new();
+            let mut end_table = EndTable::new();
+            let mut terms     = HashSet::new();
+            let mut nonterms  = HashSet::new();
 
             for p in self.grammar.productions_iter() {
                 let A : NT = p.head.clone();
                 let newA = || A.clone();
+                nonterms.insert(newA());
                 let alpha : [ProductionSym<T,NT>, ..1] = [NT(newA())];
                 let first = self.first(alpha);
                 do first.for_each_term |a| {
-                    let accum : (&T, &Prod<T,NT>) = (a, p);
-                    table.mangle(newA(), accum, nm, mm);
+                    terms.insert(a.clone());
+                    mid_table.insert(newA(), a.clone(), p.clone());
                 }
                 if first.has_epsilon() {
                     let follow = self.follow(A);
                     for b in follow.right_neighbors.iter() {
-                        table.mangle(newA(), (b, p), nm, mm);
+                        terms.insert(b.clone());
+                        mid_table.insert(newA(), b.clone(), p.clone());
                     }
                     if follow.can_terminate {
-                        end_table.mangle(newA(), p, ne, me);
+                        end_table.insert(newA(), p.clone());
                     }
                 }
             }
 
             PredictiveParsingTable {
-                nt_to_mid_prod: table,
-                nt_to_end_prod: end_table,
+                terms:    terms,
+                nonterms: nonterms,
+                mid:      mid_table,
+                end:      end_table,
             }
         }
 
@@ -1284,7 +1486,15 @@ mod grammar {
         println(fmt!("ex elim amb 2 T: %s FOLLOW(T): %s",
                      t.to_str(),
                      ppg.follow(t).to_str()));
-   }
+    }
+
+    #[test]
+    fn test_make_table() {
+        let ~(_syms, ref g) = example_4_5();
+        let ppg = PredictiveParserGen::make(g);
+        let table = ppg.make_parsing_table();
+        println(fmt!("grammar: %s, parsing_table: \n%s", g.to_str(), table.to_str()));
+    }
 
     fn iter_to_vec<'a, X:Clone, I:Iterator<X>>(i:I) -> ~[X] {
         i.map(|x| x.clone()).collect()
