@@ -1352,40 +1352,40 @@ mod grammar {
             loop {
                 let mut any_change = false;
 
-                for p in grammar.productions_iter() {
-
-                    let fresh_from_first = |_:&NT, first_beta:&FirstSet<T>| {
-                        any_change = true;
-                        let mut s = HashSet::new();
-                        do first_beta.for_each_term |t| { s.insert(t.clone()); }
-                        FollowSet{ right_neighbors: s, can_terminate: false }
-                    };
-                    let update_from_first =
-                        |_:&NT, prior: &mut FollowSet<T>, first_beta:&FirstSet<T>| {
-                        do first_beta.for_each_term |t| {
-                            if prior.right_neighbors.insert(t.clone()) {
-                                any_change = true;
-                            }
-                        }
-                    };
-
-                    let fresh_from_follow = |_:&NT, follow_A:&FollowSet<T>| {
-                        any_change = true;
-                        follow_A.clone()
-                    };
-
-                    let update_from_follow =
-                        |_:&NT, prior: &mut FollowSet<T>, follow_A:&FollowSet<T>| {
-                        for r in follow_A.right_neighbors.iter() {
-                            if prior.right_neighbors.insert(r.clone()) {
-                                any_change = true;
-                            }
-                        }
-                        if !prior.can_terminate && follow_A.can_terminate {
+                let fresh_from_first = |_:&NT, first_beta:&FirstSet<T>| {
+                    any_change = true;
+                    let mut s = HashSet::new();
+                    do first_beta.for_each_term |t| { s.insert(t.clone()); }
+                    FollowSet{ right_neighbors: s, can_terminate: false }
+                };
+                let update_from_first =
+                    |_:&NT, prior: &mut FollowSet<T>, first_beta:&FirstSet<T>| {
+                    do first_beta.for_each_term |t| {
+                        if prior.right_neighbors.insert(t.clone()) {
                             any_change = true;
-                            prior.can_terminate = true;
                         }
-                    };
+                    }
+                };
+
+                let fresh_from_follow = |_:&NT, follow_A:&FollowSet<T>| {
+                    any_change = true;
+                    follow_A.clone()
+                };
+
+                let update_from_follow =
+                    |_:&NT, prior: &mut FollowSet<T>, follow_A:&FollowSet<T>| {
+                    for r in follow_A.right_neighbors.iter() {
+                        if prior.right_neighbors.insert(r.clone()) {
+                            any_change = true;
+                        }
+                    }
+                    if !prior.can_terminate && follow_A.can_terminate {
+                        any_change = true;
+                        prior.can_terminate = true;
+                    }
+                };
+
+                for p in grammar.productions_iter() {
 
                     // Production A -> α B β
                     // implies FOLLOW(B) := FOLLOW(B) U (FIRST(β) \ {ε})
