@@ -897,6 +897,17 @@ mod grammar {
                 }
                 width_map.push(max_width);
             }
+            // ... and the end productions as well
+            {
+                let mut max_width = 1;
+                for nt in nonterms.iter() {
+                    do self.each_end_prod(nt) |p| {
+                        let l = p.to_str().len() as int;
+                        if l > max_width { max_width = l }
+                    }
+                }
+                width_map.push(max_width);
+            }
 
             let mut row_header_width = 0;
             for nt in nonterms.iter() {
@@ -905,7 +916,6 @@ mod grammar {
             }
 
             let mut s = " ".repeat(row_header_width) + " |";
-            let mut row_width = 0;
             for i in range(0, terms.len()) {
                 let ref t = terms[i];
                 let len = width_map[i];
@@ -918,8 +928,21 @@ mod grammar {
                 let left = " ".repeat(left as uint);
                 let right = " ".repeat(right as uint);
                 s = s + "| " + left + "`" + t + "`" + right  + " ";
-                row_width = s.len();
             }
+            {
+                let i = terms.len();
+                let len = width_map[i];
+                let t = "$";
+                let remainder = len - 1;
+                let left = remainder / 2;
+                let right = remainder - left;
+                if remainder < 0 || left < 0 || right < 0 { fail!("negative pad value(s)."); }
+
+                let left = " ".repeat(left as uint);
+                let right = " ".repeat(right as uint);
+                s = s + "|| " + left + " " + t + " " + right  + " ";
+            }
+            let row_width = s.len();
             s = s + "\n";
             s = s + "=".repeat(row_width) + "\n";
 
@@ -932,6 +955,14 @@ mod grammar {
                     let mut prods : ~[Prod<T,NT>] = ~[];
                     let key = (nt.clone(), t.clone());
                     do self.each_prod(&key) |p| { prods.push(p.clone()); }
+                    if prods.len() > max_len {
+                        max_len = prods.len();
+                    }
+                    entries.push(prods);
+                }
+                {
+                    let mut prods : ~[Prod<T,NT>] = ~[];
+                    do self.each_end_prod(nt) |p| { prods.push(p.clone()); }
                     if prods.len() > max_len {
                         max_len = prods.len();
                     }
@@ -976,6 +1007,33 @@ mod grammar {
                             assert!(len >= 0);
                             let fill = " ".repeat(len as uint);
                             s = s + "|  " + fill + "  ";
+                        }
+                    }
+                    {
+                        let j = terms.len();
+                        let len = width_map[j];
+                        if i < entries[j].len() {
+                            let p = entries[j][i].to_str();
+                            let remainder = len - (p.len() as int);
+                            let left = remainder / 2;
+                            let right = remainder - left;
+                            if left < 0 || right < 0 {
+                                println!("width_map: {:?} j: {} len: {}", width_map, j, len);
+                                println!("prod: {}", p);
+                                println!("remainder: {} left: {} right: {}",
+                                         remainder, left, right);
+                            }
+                            if remainder < 0 || left < 0 || right < 0 { fail!("negative pad value(s)."); }
+                            assert!(left >= 0);
+                            assert!(right >= 0);
+                            let remainder = " ".repeat(remainder as uint);
+                            let _left = " ".repeat(left as uint);
+                            let _right = " ".repeat(right as uint);
+                            s = s + "||  " + p + " " + remainder + " ";
+                        } else {
+                            assert!(len >= 0);
+                            let fill = " ".repeat(len as uint);
+                            s = s + "||  " + fill + "  ";
                         }
                     }
                     s = s + "\n";
