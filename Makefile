@@ -1,4 +1,5 @@
-all: test-serial-parsegen
+all: test-serial-sourcegen
+#all: test-serial-parsegen
 
 test-serial-%: %.bin
 	RUST_TEST_TASKS=1 time ./$<
